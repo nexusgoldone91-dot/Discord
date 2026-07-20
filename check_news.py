@@ -198,7 +198,7 @@ def check_calendar_countdown():
                 minutes_left = int((dt - now).total_seconds() // 60)
                 forecast_txt = ev["forecast"] if ev["forecast"] else "non disponibile"
                 new_alerts.append(
-                    f"-{minutes_left} Minuti a {ev['title']}, dati previsti: {forecast_txt}"
+                    f"-{minutes_left} Minuti ai {ev['title']}\nEcco i dati previsti: {forecast_txt}"
                 )
 
     save_state(CALENDAR_STATE_FILE, still_relevant_ids | (already_alerted & still_relevant_ids))
@@ -219,7 +219,7 @@ def check_weekly_summary():
     events = fetch_calendar_events()
     usd_events = [
         ev for ev in events
-        if ev["country"] == "USD" and ev["impact"] in ("High", "Medium")
+        if ev["country"] == "USD" and ev["impact"] == "High"
     ]
     usd_events.sort(key=lambda ev: (ev["date"], ev["time"]))
 
@@ -232,9 +232,8 @@ def check_weekly_summary():
 
     lines = [f"**Settimana {date_range}**\n"]
     for ev in usd_events:
-        impatto = "🔴" if ev["impact"] == "High" else "🟠"
         forecast_txt = f", previsto {ev['forecast']}" if ev["forecast"] else ""
-        lines.append(f"{impatto} {ev['date']} {ev['time']} — {ev['title']}{forecast_txt}")
+        lines.append(f"🔴 {ev['date']} {ev['time']} — {ev['title']}{forecast_txt}")
 
     save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
     return ["\n".join(lines)]
@@ -267,13 +266,13 @@ def main():
 
     weekly_lines = check_weekly_summary()
     if weekly_lines:
-        post_to_discord(DISCORD_CHANNEL_ID_USD, weekly_lines, "Calendario economico USD della settimana")
+        post_to_discord(DISCORD_CHANNEL_ID_USD, weekly_lines, "Calendario News della settimana")
     else:
         print("Nessun riepilogo settimanale da mandare ora.")
 
     calendar_lines = check_calendar_countdown()
     if calendar_lines:
-        post_to_discord(DISCORD_CHANNEL_ID_USD, calendar_lines, "Dato USD in arrivo")
+        post_to_discord(DISCORD_CHANNEL_ID_USD, calendar_lines, "Calendario News")
     else:
         print("Nessun dato USD ad alto impatto nei prossimi 20 minuti.")
 
