@@ -309,8 +309,6 @@ def check_weekly_summary():
     date_range = f"dal {first_dt.strftime('%d-%m-%Y')} al {last_dt.strftime('%d-%m-%Y')}"
 
     lines = [
-        "Inizia una nuova settimana.",
-        "",
         f"Settimana {date_range}.",
         "",
         "📅 Calendario News della settimana:",
