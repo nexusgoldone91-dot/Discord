@@ -1,8 +1,8 @@
-name: Controllo XAU/USD orario
+name: Controllo XAU/USD
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -24,10 +24,11 @@ jobs:
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
         run: python check_news.py
 
-      - name: Salva lo stato (notizie già viste)
+      - name: Salva lo stato (notizie e calendario già visti)
         run: |
           git config user.name "xauusd-alert-bot"
           git config user.email "actions@github.com"
-          git add seen_ids.json || true
-          git diff --staged --quiet || git commit -m "aggiorna stato notizie viste"
+          git pull --no-edit || true
+          git add seen_ids.json seen_calendar.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato"
           git push || true

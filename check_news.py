@@ -1,29 +1,35 @@
 #!/usr/bin/env python3
 """
-Controllo automatico XAU/USD - gira ogni ora via GitHub Actions.
-Legge feed RSS gratuiti, cerca parole chiave rilevanti per oro/dollaro
-nell'ultima ora, e posta su Discord solo se trova qualcosa di nuovo.
-Nessuna chiamata a modelli AI a pagamento: solo parole chiave.
+Controllo automatico XAU/USD - gira ogni 15 minuti via GitHub Actions.
+1) Legge feed RSS gratuiti, cerca parole chiave rilevanti per oro/dollaro,
+   e posta su Discord il TESTO della notizia (niente link).
+2) Legge il calendario economico gratuito (Forex Factory) e avvisa 15-20
+   minuti prima di un dato USD ad alto impatto, col valore atteso.
+Nessuna chiamata a modelli AI a pagamento: solo parole chiave e dati.
 """
 
 import os
 import re
 import json
-import time
+import html
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CHANNEL_ID = os.environ["DISCORD_CHANNEL_ID"]
 
-FEEDS = [
+NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
     "https://www.investing.com/rss/news_1.rss",          # Economic news
     "https://feeds.marketwatch.com/marketwatch/topstories/",
     "https://www.cnbc.com/id/10000664/device/rss/rss.html",  # CNBC economy
     "https://www.forexlive.com/feed/news",
 ]
+
+CALENDAR_FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
+CALENDAR_TZ = ZoneInfo("America/New_York")  # convenzione documentata di questo feed
 
 # Parole "forti": da sole bastano per segnalare la notizia (chiaramente legate a oro/geopolitica/Fed)
 STRONG_KEYWORDS = [
@@ -43,57 +49,164 @@ WEAK_KEYWORDS = [
     "central bank", "banca centrale", "opec", "oil", "petrolio",
 ]
 
-STATE_FILE = "seen_ids.json"
+NEWS_STATE_FILE = "seen_ids.json"
+CALENDAR_STATE_FILE = "seen_calendar.json"
+
+HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
-def fetch_feed(url):
+def clean_text(raw):
+    if not raw:
+        return ""
+    text = HTML_TAG_RE.sub("", raw)
+    text = html.unescape(text)
+    return text.strip()
+
+
+def fetch_url(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
-    except Exception as e:
-        print(f"Errore su {url}: {e}")
-        return []
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read()
 
+
+# ---------- NOTIZIE ----------
+
+def fetch_news_feed(url):
     try:
+        data = fetch_url(url)
         root = ET.fromstring(data)
-    except ET.ParseError:
+    except Exception as e:
+        print(f"Errore feed notizie {url}: {e}")
         return []
 
     items = []
     for item in root.iter("item"):
-        title = item.findtext("title", "")
+        title = clean_text(item.findtext("title", ""))
+        description = clean_text(item.findtext("description", ""))
         link = item.findtext("link", "")
-        pub_date = item.findtext("pubDate", "")
         guid = item.findtext("guid", link)
-        items.append({"title": title, "link": link, "pub_date": pub_date, "guid": guid})
+        items.append({"title": title, "description": description, "guid": guid})
     return items
 
 
 def matches_keywords(title):
     t = title.lower()
-    strong_hits = [kw for kw in STRONG_KEYWORDS if kw in t]
-    if strong_hits:
+    if any(kw in t for kw in STRONG_KEYWORDS):
         return True
     weak_hits = [kw for kw in WEAK_KEYWORDS if kw in t]
     return len(weak_hits) >= 2
 
 
-def load_seen():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
+def load_state(path):
+    if os.path.exists(path):
+        with open(path) as f:
             return set(json.load(f))
     return set()
 
 
-def save_seen(seen):
-    # tiene solo le ultime 500 per non far crescere il file all'infinito
-    with open(STATE_FILE, "w") as f:
-        json.dump(list(seen)[-500:], f)
+def save_state(path, values):
+    with open(path, "w") as f:
+        json.dump(list(values)[-500:], f)
 
 
-def post_to_discord(lines):
-    content = "**Aggiornamenti rilevanti per XAU/USD (ultima ora)**\n\n" + "\n\n".join(lines)
+def check_news():
+    seen = load_state(NEWS_STATE_FILE)
+    new_relevant = []
+
+    for feed_url in NEWS_FEEDS:
+        for item in fetch_news_feed(feed_url):
+            if item["guid"] in seen:
+                continue
+            seen.add(item["guid"])
+            if matches_keywords(item["title"]):
+                new_relevant.append(item)
+
+    save_state(NEWS_STATE_FILE, seen)
+
+    lines = []
+    for it in new_relevant[:8]:
+        body = it["description"] if it["description"] else it["title"]
+        # se il titolo non è già contenuto nel corpo, lo mette come intestazione della riga
+        if it["title"].lower() not in body.lower():
+            lines.append(f"• **{it['title']}** — {body}")
+        else:
+            lines.append(f"• {body}")
+    return lines
+
+
+# ---------- CALENDARIO ECONOMICO ----------
+
+def fetch_calendar_events():
+    try:
+        data = fetch_url(CALENDAR_FEED)
+        root = ET.fromstring(data)
+    except Exception as e:
+        print(f"Errore calendario economico: {e}")
+        return []
+
+    events = []
+    for event in root.iter("event"):
+        title = clean_text(event.findtext("title", ""))
+        country = clean_text(event.findtext("country", ""))
+        date_str = clean_text(event.findtext("date", ""))
+        time_str = clean_text(event.findtext("time", ""))
+        impact = clean_text(event.findtext("impact", ""))
+        forecast = clean_text(event.findtext("forecast", ""))
+        previous = clean_text(event.findtext("previous", ""))
+        events.append({
+            "title": title, "country": country, "date": date_str, "time": time_str,
+            "impact": impact, "forecast": forecast, "previous": previous,
+        })
+    return events
+
+
+def parse_event_datetime(ev):
+    # formato tipico: date "07-20-2026", time "8:30am" - non tutti gli eventi hanno un orario preciso
+    if not ev["time"] or "am" not in ev["time"].lower() and "pm" not in ev["time"].lower():
+        return None
+    try:
+        dt = datetime.strptime(f"{ev['date']} {ev['time']}", "%m-%d-%Y %I:%M%p")
+        return dt.replace(tzinfo=CALENDAR_TZ)
+    except ValueError:
+        return None
+
+
+def check_calendar():
+    events = fetch_calendar_events()
+    now = datetime.now(CALENDAR_TZ)
+    window_start = now
+    window_end = now + timedelta(minutes=20)
+
+    already_alerted = load_state(CALENDAR_STATE_FILE)
+    new_alerts = []
+    still_relevant_ids = set()
+
+    for ev in events:
+        if ev["country"] != "USD" or ev["impact"] != "High":
+            continue
+        dt = parse_event_datetime(ev)
+        if dt is None:
+            continue
+        event_id = f"{ev['title']}|{ev['date']}|{ev['time']}"
+        if window_start <= dt <= window_end:
+            still_relevant_ids.add(event_id)
+            if event_id not in already_alerted:
+                minutes_left = int((dt - now).total_seconds() // 60)
+                forecast_txt = f", previsto {ev['forecast']}" if ev["forecast"] else ""
+                previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
+                new_alerts.append(
+                    f"⏰ Tra {minutes_left} minuti: **{ev['title']}** (USD, alto impatto){forecast_txt}{previous_txt}"
+                )
+
+    # tiene in memoria solo gli id ancora nella finestra utile, il resto si può dimenticare
+    save_state(CALENDAR_STATE_FILE, still_relevant_ids | (already_alerted & still_relevant_ids))
+    return new_alerts
+
+
+# ---------- DISCORD ----------
+
+def post_to_discord(lines, header):
+    content = f"**{header}**\n\n" + "\n\n".join(lines)
     url = f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/messages"
     body = json.dumps({"content": content}).encode()
     req = urllib.request.Request(
@@ -109,24 +222,17 @@ def post_to_discord(lines):
 
 
 def main():
-    seen = load_seen()
-    new_relevant = []
-
-    for feed_url in FEEDS:
-        for item in fetch_feed(feed_url):
-            if item["guid"] in seen:
-                continue
-            if matches_keywords(item["title"]):
-                new_relevant.append(item)
-            seen.add(item["guid"])
-
-    if new_relevant:
-        lines = [f"• {it['title']} ({it['link']})" for it in new_relevant[:8]]
-        post_to_discord(lines)
+    news_lines = check_news()
+    if news_lines:
+        post_to_discord(news_lines, "Aggiornamenti rilevanti per XAU/USD")
     else:
         print("Nessuna notizia nuova rilevante trovata.")
 
-    save_seen(seen)
+    calendar_lines = check_calendar()
+    if calendar_lines:
+        post_to_discord(calendar_lines, "Dato USD in arrivo")
+    else:
+        print("Nessun dato USD ad alto impatto nei prossimi 20 minuti.")
 
 
 if __name__ == "__main__":
