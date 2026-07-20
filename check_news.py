@@ -357,7 +357,7 @@ def post_to_discord(channel_id, content):
 def main():
     news_lines = check_news()
     if news_lines:
-        content = "**Aggiornamenti rilevanti per XAU/USD**\n\n" + "\n\n".join(news_lines)
+        content = "**Info dal mondo:**\n\n" + "\n\n".join(news_lines)
         post_to_discord(DISCORD_CHANNEL_ID_NEWS, content)
     else:
         print("Nessuna notizia nuova rilevante trovata.")
