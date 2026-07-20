@@ -5,9 +5,9 @@ Controllo automatico XAU/USD - gira ogni 15 minuti via GitHub Actions.
 Due canali Discord separati:
 - #info-dal-mondo: notizie generiche (geopolitica, Trump, Fed) da feed RSS,
   testo della notizia, niente link.
-- #news-di-mercato-usd: dati economici USA dal calendario Forex Factory -
-  riepilogo settimanale ogni lunedi 7:00 ora Canarie, e avviso 15-20 minuti
-  prima di un dato ad alto impatto con il valore atteso.
+- #calendario-news: calendario economico USA (Forex Factory) - ogni lunedi
+  7:00 ora Canarie un riepilogo semplice della settimana, e un avviso 15-20
+  minuti prima di ogni dato ad alto impatto con i valori attesi/precedenti.
 
 Nessuna chiamata a modelli AI a pagamento: solo parole chiave e dati.
 """
@@ -18,6 +18,7 @@ import json
 import html
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -36,6 +37,12 @@ NEWS_FEEDS = [
 CALENDAR_FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
 CALENDAR_TZ = ZoneInfo("America/New_York")  # convenzione documentata di questo feed
 CANARY_TZ = ZoneInfo("Atlantic/Canary")
+
+GIORNI_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+MESI_IT = [
+    "", "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+    "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
+]
 
 # Parole "forti": da sole bastano per segnalare la notizia (chiaramente legate a oro/geopolitica/Fed)
 STRONG_KEYWORDS = [
@@ -140,7 +147,7 @@ def check_news():
     return lines
 
 
-# ---------- CALENDARIO ECONOMICO USD (#news-di-mercato-usd) ----------
+# ---------- CALENDARIO ECONOMICO USD (#calendario-news) ----------
 
 def fetch_calendar_events():
     try:
@@ -164,50 +171,90 @@ def fetch_calendar_events():
     return events
 
 
-def parse_event_datetime(ev):
+def parse_event_datetime_canary(ev):
+    """Converte data/ora dell'evento (fuso del feed, ET) in ora Canarie."""
     t = ev["time"].lower()
     if "am" not in t and "pm" not in t:
         return None
     try:
         dt = datetime.strptime(f"{ev['date']} {ev['time']}", "%m-%d-%Y %I:%M%p")
-        return dt.replace(tzinfo=CALENDAR_TZ)
+        dt = dt.replace(tzinfo=CALENDAR_TZ)
+        return dt.astimezone(CANARY_TZ)
     except ValueError:
         return None
 
 
+def simplify_name(title):
+    """'Core CPI m/m' -> 'CPI', 'PPI m/m' -> 'PPI', ecc. per i titoli semplificati."""
+    t = title
+    for suffix in [" m/m", " q/q", " y/y"]:
+        if t.endswith(suffix):
+            t = t[: -len(suffix)]
+    if t.lower().startswith("core "):
+        t = t[5:]
+    return t.strip()
+
+
+def variant_label(title):
+    """Recupera la sotto-etichetta (es. 'Core m/m', 'y/y') per il dettaglio numerico."""
+    t = title.lower()
+    is_core = t.startswith("core ")
+    for suffix in ("m/m", "q/q", "y/y"):
+        if t.endswith(" " + suffix):
+            return ("Core " if is_core else "") + suffix
+    return None
+
+
 def check_calendar_countdown():
-    """Avvisa 15-20 minuti prima di un dato USD ad alto impatto."""
+    """Avvisa 15-20 minuti prima di dati USD ad alto impatto, raggruppati per evento/orario."""
     events = fetch_calendar_events()
-    now = datetime.now(CALENDAR_TZ)
-    window_end = now + timedelta(minutes=20)
+    now_canary = datetime.now(CANARY_TZ)
+    window_end = now_canary + timedelta(minutes=20)
 
     already_alerted = load_state(CALENDAR_STATE_FILE)
-    new_alerts = []
     still_relevant_ids = set()
+    groups = defaultdict(list)  # (date, time, simple_name) -> [eventi]
 
     for ev in events:
         if ev["country"] != "USD" or ev["impact"] != "High":
             continue
-        dt = parse_event_datetime(ev)
+        dt = parse_event_datetime_canary(ev)
         if dt is None:
             continue
         event_id = f"{ev['title']}|{ev['date']}|{ev['time']}"
-        if now <= dt <= window_end:
+        if now_canary <= dt <= window_end:
             still_relevant_ids.add(event_id)
             if event_id not in already_alerted:
-                minutes_left = int((dt - now).total_seconds() // 60)
-                forecast_txt = ev["forecast"] if ev["forecast"] else "non disponibile"
-                previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
-                new_alerts.append(
-                    f"-{minutes_left} Minuti ai {ev['title']}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
-                )
+                simple_name = simplify_name(ev["title"])
+                groups[(ev["date"], ev["time"], simple_name)].append((ev, dt))
 
     save_state(CALENDAR_STATE_FILE, still_relevant_ids | (already_alerted & still_relevant_ids))
-    return new_alerts
+
+    messages = []
+    for (date_str, time_str, simple_name), items in groups.items():
+        dt = items[0][1]
+        minutes_left = int((dt - now_canary).total_seconds() // 60)
+        data_lines = []
+        for ev, _ in items:
+            if not ev["forecast"] and not ev["previous"]:
+                continue
+            variant = variant_label(ev["title"])
+            forecast_txt = ev["forecast"] if ev["forecast"] else "non disponibile"
+            previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
+            prefix = f"{variant}: " if variant else ""
+            data_lines.append(f"• {prefix}{forecast_txt}{previous_txt}")
+
+        if data_lines:
+            msg = f"-{minutes_left} minuti ai {simple_name}\nDati attesi:\n" + "\n".join(data_lines)
+        else:
+            msg = f"-{minutes_left} minuti a: {items[0][0]['title']}"
+        messages.append(msg)
+
+    return messages
 
 
 def check_weekly_summary():
-    """Ogni lunedi 7:00-7:14 ora Canarie, riepilogo della settimana USD."""
+    """Ogni lunedi 7:00-7:14 ora Canarie, riepilogo semplice della settimana USD."""
     now_canary = datetime.now(CANARY_TZ)
     if not (now_canary.weekday() == 0 and now_canary.hour == 7 and now_canary.minute < 15):
         return []
@@ -218,24 +265,46 @@ def check_weekly_summary():
         return []
 
     events = fetch_calendar_events()
-    usd_events = [
-        ev for ev in events
-        if ev["country"] == "USD" and ev["impact"] == "High"
-    ]
-    usd_events.sort(key=lambda ev: (ev["date"], ev["time"]))
+    usd_events = [ev for ev in events if ev["country"] == "USD" and ev["impact"] == "High"]
 
     if not usd_events:
         save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
         return []
 
-    dates = [ev["date"] for ev in usd_events if ev["date"]]
-    date_range = f"dal {dates[0]} al {dates[-1]}" if dates else ""
-
-    lines = [f"**Settimana {date_range}**\n"]
+    # raggruppa per (data, ora, nome semplificato) cosi CPI non compare 4 volte
+    grouped = {}
     for ev in usd_events:
-        forecast_txt = f", previsto {ev['forecast']}" if ev["forecast"] else ""
-        previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
-        lines.append(f"🔴 {ev['date']} {ev['time']} — {ev['title']}{forecast_txt}{previous_txt}")
+        dt = parse_event_datetime_canary(ev)
+        if dt is None:
+            continue
+        simple_name = simplify_name(ev["title"])
+        key = (dt.date(), dt.strftime("%H:%M"), simple_name)
+        if key not in grouped:
+            grouped[key] = dt
+
+    ordered = sorted(grouped.items(), key=lambda kv: kv[1])
+    if not ordered:
+        save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
+        return []
+
+    first_dt = ordered[0][1]
+    last_dt = ordered[-1][1]
+    if first_dt.month == last_dt.month:
+        date_range = f"dal {first_dt.day} al {last_dt.day} {MESI_IT[last_dt.month]}"
+    else:
+        date_range = f"dal {first_dt.day} {MESI_IT[first_dt.month]} al {last_dt.day} {MESI_IT[last_dt.month]}"
+
+    lines = [
+        "Inizia una nuova settimana.",
+        "",
+        f"Settimana {date_range}.",
+        "",
+        "Le news della settimana:",
+        "",
+    ]
+    for (_, _, simple_name), dt in ordered:
+        giorno = GIORNI_IT[dt.weekday()]
+        lines.append(f"{giorno} {dt.day} {simple_name} ore {dt.strftime('%H:%M')}")
 
     save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
     return ["\n".join(lines)]
@@ -243,8 +312,7 @@ def check_weekly_summary():
 
 # ---------- DISCORD ----------
 
-def post_to_discord(channel_id, lines, header):
-    content = f"**{header}**\n\n" + "\n\n".join(lines)
+def post_to_discord(channel_id, content):
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
     body = json.dumps({"content": content}).encode()
     req = urllib.request.Request(
@@ -262,20 +330,21 @@ def post_to_discord(channel_id, lines, header):
 def main():
     news_lines = check_news()
     if news_lines:
-        post_to_discord(DISCORD_CHANNEL_ID_NEWS, news_lines, "Aggiornamenti rilevanti per XAU/USD")
+        content = "**Aggiornamenti rilevanti per XAU/USD**\n\n" + "\n\n".join(news_lines)
+        post_to_discord(DISCORD_CHANNEL_ID_NEWS, content)
     else:
         print("Nessuna notizia nuova rilevante trovata.")
 
     weekly_lines = check_weekly_summary()
-    if weekly_lines:
-        post_to_discord(DISCORD_CHANNEL_ID_USD, weekly_lines, "Calendario News della settimana")
-    else:
+    for msg in weekly_lines:
+        post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
+    if not weekly_lines:
         print("Nessun riepilogo settimanale da mandare ora.")
 
-    calendar_lines = check_calendar_countdown()
-    if calendar_lines:
-        post_to_discord(DISCORD_CHANNEL_ID_USD, calendar_lines, "Calendario News")
-    else:
+    countdown_messages = check_calendar_countdown()
+    for msg in countdown_messages:
+        post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
+    if not countdown_messages:
         print("Nessun dato USD ad alto impatto nei prossimi 20 minuti.")
 
 
