@@ -205,6 +205,29 @@ def variant_label(title):
     return None
 
 
+def pick_primary_event(items):
+    """Tra piu' varianti dello stesso dato (Core CPI m/m, CPI y/y, ecc.) sceglie
+    quella principale da mostrare da sola: preferisce non-Core, poi y/y, poi m/m,
+    poi q/q, poi la prima disponibile."""
+    def score(ev_dt):
+        ev, _ = ev_dt
+        t = ev["title"].lower()
+        is_core = t.startswith("core ")
+        if t.endswith(" y/y"):
+            suffix_rank = 0
+        elif t.endswith(" m/m"):
+            suffix_rank = 1
+        elif t.endswith(" q/q"):
+            suffix_rank = 2
+        else:
+            suffix_rank = 3
+        return (1 if is_core else 0, suffix_rank)
+
+    with_data = [it for it in items if it[0]["forecast"] or it[0]["previous"]]
+    pool = with_data if with_data else items
+    return min(pool, key=score)
+
+
 def check_calendar_countdown():
     """Avvisa 15-20 minuti prima di dati USD ad alto impatto, raggruppati per evento/orario."""
     events = fetch_calendar_events()
@@ -234,20 +257,14 @@ def check_calendar_countdown():
     for (date_str, time_str, simple_name), items in groups.items():
         dt = items[0][1]
         minutes_left = int((dt - now_canary).total_seconds() // 60)
-        data_lines = []
-        for ev, _ in items:
-            if not ev["forecast"] and not ev["previous"]:
-                continue
-            variant = variant_label(ev["title"])
-            forecast_txt = ev["forecast"] if ev["forecast"] else "non disponibile"
-            previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
-            prefix = f"{variant}: " if variant else ""
-            data_lines.append(f"• {prefix}{forecast_txt}{previous_txt}")
+        primary_ev, _ = pick_primary_event(items)
 
-        if data_lines:
-            msg = f"-{minutes_left} minuti ai {simple_name}\nDati attesi:\n" + "\n".join(data_lines)
+        if primary_ev["forecast"] or primary_ev["previous"]:
+            forecast_txt = primary_ev["forecast"] if primary_ev["forecast"] else "non disponibile"
+            previous_txt = f" (precedente {primary_ev['previous']})" if primary_ev["previous"] else ""
+            msg = f"⏰ -{minutes_left} Minuti al {simple_name}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
         else:
-            msg = f"-{minutes_left} minuti a: {items[0][0]['title']}"
+            msg = f"⏰ -{minutes_left} Minuti al {simple_name}"
         messages.append(msg)
 
     return messages
@@ -289,17 +306,14 @@ def check_weekly_summary():
 
     first_dt = ordered[0][1]
     last_dt = ordered[-1][1]
-    if first_dt.month == last_dt.month:
-        date_range = f"dal {first_dt.day} al {last_dt.day} {MESI_IT[last_dt.month]}"
-    else:
-        date_range = f"dal {first_dt.day} {MESI_IT[first_dt.month]} al {last_dt.day} {MESI_IT[last_dt.month]}"
+    date_range = f"dal {first_dt.strftime('%d-%m-%Y')} al {last_dt.strftime('%d-%m-%Y')}"
 
     lines = [
         "Inizia una nuova settimana.",
         "",
         f"Settimana {date_range}.",
         "",
-        "Le news della settimana:",
+        "📅 Calendario News della settimana:",
         "",
     ]
     for (_, _, simple_name), dt in ordered:
