@@ -86,6 +86,39 @@ def is_pure_casualty_news(title):
     return has_casualty and not has_market_impact
 
 
+# Notizie "retrospettive"/di recap statistico (dati di un periodo gia' passato,
+# non un evento fresco) - scartate anche se contengono una parola forte come "gold"
+RETROSPECTIVE_TERMS = [
+    "first half of", "h1 2026", "year-to-date", "ytd", "so far this year",
+    "first six months", "quarterly report", "q1 2026", "q2 2026",
+    "prima meta del", "primo semestre",
+]
+
+
+def is_retrospective_news(title):
+    t = title.lower()
+    return any(term in t for term in RETROSPECTIVE_TERMS)
+
+
+# Se il titolo parla di un'altra valuta (non USD) e non menziona esplicitamente
+# dollaro/oro/Fed, va scartato - "dollar" da solo puo' beccare per sbaglio storie
+# su altre valute che lo citano solo di striscio (es. "Canadian dollar")
+OTHER_CURRENCY_TERMS = [
+    "canadian dollar", "australian dollar", "aussie", "loonie", "kiwi dollar",
+    "yen", "euro", "sterling", "pound", "yuan", "renminbi", "franc",
+]
+USD_GOLD_EXPLICIT_TERMS = [
+    "us dollar", "usd", "dxy", "dollar index", "greenback", "gold", "oro", "xau", "fed",
+]
+
+
+def is_other_currency_news(title):
+    t = title.lower()
+    has_other_currency = any(term in t for term in OTHER_CURRENCY_TERMS)
+    has_usd_gold = any(term in t for term in USD_GOLD_EXPLICIT_TERMS)
+    return has_other_currency and not has_usd_gold
+
+
 NEWS_STATE_FILE = "seen_ids.json"
 CALENDAR_STATE_FILE = "seen_calendar.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
@@ -146,6 +179,10 @@ def translate_to_italian(text):
 
 def matches_keywords(title):
     if is_pure_casualty_news(title):
+        return False
+    if is_retrospective_news(title):
+        return False
+    if is_other_currency_news(title):
         return False
     t = title.lower()
     if any(kw in t for kw in STRONG_KEYWORDS):
