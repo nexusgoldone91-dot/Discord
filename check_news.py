@@ -249,7 +249,7 @@ def check_calendar_countdown():
     """Avvisa 15-20 minuti prima di dati USD ad alto impatto, raggruppati per evento/orario."""
     events = fetch_calendar_events()
     now_canary = datetime.now(CANARY_TZ)
-    window_end = now_canary + timedelta(minutes=20)
+    window_end = now_canary + timedelta(minutes=70)  # controllo ora orario, finestra allargata per non perdere eventi tra un giro e l'altro
 
     already_alerted = load_state(CALENDAR_STATE_FILE)
     still_relevant_ids = set()
@@ -354,7 +354,8 @@ def post_to_discord(channel_id, content):
         print("Postato su Discord:", resp.status)
 
 
-def main():
+def run_news():
+    """Controllo notizie generiche - gira ogni 15 minuti (workflow news.yml)."""
     news_lines = check_news()
     if news_lines:
         content = "**Info dal mondo:**\n\n" + "\n\n".join(news_lines)
@@ -362,6 +363,9 @@ def main():
     else:
         print("Nessuna notizia nuova rilevante trovata.")
 
+
+def run_calendar():
+    """Controllo calendario/countdown USD - gira una volta all'ora (workflow calendar.yml)."""
     weekly_lines = check_weekly_summary()
     for msg in weekly_lines:
         post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
@@ -372,8 +376,16 @@ def main():
     for msg in countdown_messages:
         post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
     if not countdown_messages:
-        print("Nessun dato USD ad alto impatto nei prossimi 20 minuti.")
+        print("Nessun dato USD ad alto impatto nella prossima ora.")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if mode == "news":
+        run_news()
+    elif mode == "calendar":
+        run_calendar()
+    else:
+        run_news()
+        run_calendar()

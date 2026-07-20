@@ -1,8 +1,8 @@
-name: Notizie XAU/USD (ogni 15 minuti)
+name: Calendario News USD (ogni ora)
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -18,18 +18,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Esegui controllo notizie
+      - name: Esegui controllo calendario
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
           DISCORD_CHANNEL_ID_USD: ${{ secrets.DISCORD_CHANNEL_ID_USD }}
-        run: python check_news.py news
+        run: python check_news.py calendar
 
-      - name: Salva lo stato (notizie già viste)
+      - name: Salva lo stato (calendario e riepilogo settimanale già visti)
         run: |
           git config user.name "xauusd-alert-bot"
           git config user.email "actions@github.com"
           git pull --no-edit || true
-          git add seen_ids.json || true
-          git diff --staged --quiet || git commit -m "aggiorna stato notizie"
+          git add seen_calendar.json seen_weekly.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato calendario"
           git push || true
