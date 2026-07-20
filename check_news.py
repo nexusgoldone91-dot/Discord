@@ -25,12 +25,21 @@ FEEDS = [
     "https://www.forexlive.com/feed/news",
 ]
 
-KEYWORDS = [
-    "trump", "truth social", "tariff", "tariffs", "dazi", "dazio",
-    "fed", "federal reserve", "fomc", "rate hike", "rate cut", "interest rate",
-    "cpi", "ppi", "nfp", "nonfarm payroll", "inflation", "inflazione",
-    "iran", "israel", "houthi", "hormuz", "strike", "attack", "war", "ceasefire",
-    "gold", "oro", "xau", "dollar", "dollaro", "dxy",
+# Parole "forti": da sole bastano per segnalare la notizia (chiaramente legate a oro/geopolitica/Fed)
+STRONG_KEYWORDS = [
+    "xau", "gold", "oro", "iran", "houthi", "hormuz", "ceasefire", "cessate il fuoco",
+    "fomc", "rate hike", "rate cut", "cpi", "ppi", "nfp", "nonfarm payroll",
+    "truth social", "missile", "airstrike", "air strike",
+]
+
+# Parole "deboli": generiche, contano solo se compaiono insieme ad almeno un'altra
+# (forte o debole) nello stesso titolo - evita falsi positivi tipo "Dow ai massimi
+# grazie a Trump" o notizie su Bitcoin/lira turca che citano solo "dollar" di striscio
+WEAK_KEYWORDS = [
+    "trump", "tariff", "tariffs", "dazi", "dazio",
+    "fed", "federal reserve", "interest rate", "inflation", "inflazione",
+    "israel", "strike", "attack", "war",
+    "dollar", "dollaro", "dxy",
     "central bank", "banca centrale", "opec", "oil", "petrolio",
 ]
 
@@ -63,7 +72,11 @@ def fetch_feed(url):
 
 def matches_keywords(title):
     t = title.lower()
-    return any(kw in t for kw in KEYWORDS)
+    strong_hits = [kw for kw in STRONG_KEYWORDS if kw in t]
+    if strong_hits:
+        return True
+    weak_hits = [kw for kw in WEAK_KEYWORDS if kw in t]
+    return len(weak_hits) >= 2
 
 
 def load_seen():
