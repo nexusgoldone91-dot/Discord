@@ -197,8 +197,9 @@ def check_calendar_countdown():
             if event_id not in already_alerted:
                 minutes_left = int((dt - now).total_seconds() // 60)
                 forecast_txt = ev["forecast"] if ev["forecast"] else "non disponibile"
+                previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
                 new_alerts.append(
-                    f"-{minutes_left} Minuti ai {ev['title']}\nEcco i dati previsti: {forecast_txt}"
+                    f"-{minutes_left} Minuti ai {ev['title']}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
                 )
 
     save_state(CALENDAR_STATE_FILE, still_relevant_ids | (already_alerted & still_relevant_ids))
@@ -233,7 +234,8 @@ def check_weekly_summary():
     lines = [f"**Settimana {date_range}**\n"]
     for ev in usd_events:
         forecast_txt = f", previsto {ev['forecast']}" if ev["forecast"] else ""
-        lines.append(f"🔴 {ev['date']} {ev['time']} — {ev['title']}{forecast_txt}")
+        previous_txt = f" (precedente {ev['previous']})" if ev["previous"] else ""
+        lines.append(f"🔴 {ev['date']} {ev['time']} — {ev['title']}{forecast_txt}{previous_txt}")
 
     save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
     return ["\n".join(lines)]
