@@ -17,6 +17,7 @@ import re
 import json
 import html
 import urllib.request
+import urllib.parse
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -103,6 +104,23 @@ def fetch_news_feed(url):
     return items
 
 
+def translate_to_italian(text):
+    if not text:
+        return text
+    try:
+        params = urllib.parse.urlencode({
+            "client": "gtx", "sl": "en", "tl": "it", "dt": "t", "q": text
+        })
+        url = f"https://translate.googleapis.com/translate_a/single?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return "".join(seg[0] for seg in data[0])
+    except Exception as e:
+        print(f"Errore traduzione: {e}")
+        return text
+
+
 def matches_keywords(title):
     t = title.lower()
     if any(kw in t for kw in STRONG_KEYWORDS):
@@ -139,11 +157,10 @@ def check_news():
 
     lines = []
     for it in new_relevant[:8]:
-        body = it["description"] if it["description"] else it["title"]
-        if it["title"].lower() not in body.lower():
-            lines.append(f"• **{it['title']}** — {body}")
-        else:
-            lines.append(f"• {body}")
+        # solo il titolo tradotto: i titoli vanno dritti al punto, le descrizioni
+        # di alcune fonti sono lunghe/disordinate e non c'e' AI per riassumerle bene
+        title_it = translate_to_italian(it["title"])
+        lines.append(f"• {title_it}")
     return lines
 
 
