@@ -63,6 +63,29 @@ WEAK_KEYWORDS = [
     "central bank", "banca centrale", "opec", "oil", "petrolio",
 ]
 
+# Se il titolo parla SOLO di vittime/morti senza un aggancio chiaro a qualcosa
+# che muove davvero i mercati, va scartato - un conteggio di morti da solo non
+# sposta l'oro o il dollaro, serve un impatto economico concreto (petrolio,
+# blocco navale, sanzioni, ecc.)
+CASUALTY_TERMS = [
+    "kill", "dead", "death toll", "casualt", "wounded", "injur",
+    "morti", "vittime", "uccis", "ferit",
+]
+MARKET_IMPACT_TERMS = [
+    "oil", "petrolio", "opec", "hormuz", "blockade", "blocco navale",
+    "sanction", "sanzioni", "supply", "shipping", "tanker", "petroliera",
+    "dollar", "dollaro", "dxy", "gold", "oro", "xau", "stocks", "market",
+    "mercati", "borsa", "fed", "rate",
+]
+
+
+def is_pure_casualty_news(title):
+    t = title.lower()
+    has_casualty = any(term in t for term in CASUALTY_TERMS)
+    has_market_impact = any(term in t for term in MARKET_IMPACT_TERMS)
+    return has_casualty and not has_market_impact
+
+
 NEWS_STATE_FILE = "seen_ids.json"
 CALENDAR_STATE_FILE = "seen_calendar.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
@@ -122,6 +145,8 @@ def translate_to_italian(text):
 
 
 def matches_keywords(title):
+    if is_pure_casualty_news(title):
+        return False
     t = title.lower()
     if any(kw in t for kw in STRONG_KEYWORDS):
         return True
