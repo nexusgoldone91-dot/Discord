@@ -284,10 +284,6 @@ def check_weekly_summary():
     events = fetch_calendar_events()
     usd_events = [ev for ev in events if ev["country"] == "USD" and ev["impact"] == "High"]
 
-    if not usd_events:
-        save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
-        return []
-
     # raggruppa per (data, ora, nome semplificato) cosi CPI non compare 4 volte
     grouped = {}
     for ev in usd_events:
@@ -300,13 +296,10 @@ def check_weekly_summary():
             grouped[key] = dt
 
     ordered = sorted(grouped.items(), key=lambda kv: kv[1])
-    if not ordered:
-        save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
-        return []
 
-    first_dt = ordered[0][1]
-    last_dt = ordered[-1][1]
-    date_range = f"dal {first_dt.strftime('%d-%m-%Y')} al {last_dt.strftime('%d-%m-%Y')}"
+    monday = now_canary - timedelta(days=now_canary.weekday())
+    sunday = monday + timedelta(days=6)
+    date_range = f"dal {monday.strftime('%d-%m-%Y')} al {sunday.strftime('%d-%m-%Y')}"
 
     lines = [
         f"Settimana {date_range}.",
@@ -314,9 +307,14 @@ def check_weekly_summary():
         "📅 Calendario News della settimana:",
         "",
     ]
-    for (_, _, simple_name), dt in ordered:
-        giorno = GIORNI_IT[dt.weekday()]
-        lines.append(f"🔺 {giorno} {dt.day} {simple_name} ore {dt.strftime('%H:%M')}")
+
+    if ordered:
+        for (_, _, simple_name), dt in ordered:
+            giorno = GIORNI_IT[dt.weekday()]
+            lines.append(f"🔺 {giorno} {dt.day} {simple_name} ore {dt.strftime('%H:%M')}")
+    else:
+        lines.append("Questa settimana nessuna notizia d'impatto nel calendario.")
+        lines.append("Teniamo comunque gli occhi aperti.")
 
     save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
     return ["\n".join(lines)]
