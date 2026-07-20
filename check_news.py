@@ -318,7 +318,7 @@ def check_weekly_summary():
     ]
     for (_, _, simple_name), dt in ordered:
         giorno = GIORNI_IT[dt.weekday()]
-        lines.append(f"{giorno} {dt.day} {simple_name} ore {dt.strftime('%H:%M')}")
+        lines.append(f"🔺 {giorno} {dt.day} {simple_name} ore {dt.strftime('%H:%M')}")
 
     save_state(WEEKLY_STATE_FILE, already_sent | {week_key})
     return ["\n".join(lines)]
