@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Controllo automatico XAU/USD - gira ogni 15 minuti via GitHub Actions.
+Controllo automatico XAU/USD via GitHub Actions - due workflow separati:
+news.yml (check_news, ogni ~29 minuti) e calendar.yml (check_calendar_countdown
++ check_weekly_summary, una volta all'ora).
 
 Due canali Discord separati:
 - #info-dal-mondo: notizie generiche (geopolitica, Trump, Fed) da feed RSS,
-  testo della notizia, niente link.
+  solo titolo tradotto in italiano, niente corpo/link/fonte.
 - #calendario-news: calendario economico USA (Forex Factory) - ogni lunedi
-  7:00 ora Canarie un riepilogo semplice della settimana, e un avviso 15-20
-  minuti prima di ogni dato ad alto impatto con i valori attesi/precedenti.
+  (nel giro dell'ora 7, orario esatto dipende da quando il workflow orario
+  cade quel giorno) un riepilogo semplice della settimana, e un avviso quando
+  manca meno di un'ora a un dato ad alto impatto con i valori attesi/precedenti.
 
 Nessuna chiamata a modelli AI a pagamento: solo parole chiave e dati.
 """
@@ -352,7 +355,9 @@ def check_calendar_countdown():
 def check_weekly_summary():
     """Ogni lunedi 7:00-7:14 ora Canarie, riepilogo semplice della settimana USD."""
     now_canary = datetime.now(CANARY_TZ)
-    if not (now_canary.weekday() == 0 and now_canary.hour == 7 and now_canary.minute < 15):
+    # il workflow gira una volta all'ora al minuto :47 - quindi lunedi' l'unico
+    # giro nella fascia 7:xx e' alle 7:47, non serve un controllo sui minuti
+    if not (now_canary.weekday() == 0 and now_canary.hour == 7):
         return []
 
     already_sent = load_state(WEEKLY_STATE_FILE)
