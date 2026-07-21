@@ -122,6 +122,29 @@ def is_other_currency_news(title):
     return has_other_currency and not has_usd_gold
 
 
+# Se il titolo riguarda principalmente un altro paese (non USA/Iran/Israel, i
+# soli davvero centrali per XAU/USD) e non parla esplicitamente di oro, va
+# scartato - evita notizie tipo "CPI Nuova Zelanda" o "dazi USA-Canada" che
+# citano una parola forte/debole (cpi, tariff) senza avere nulla a che fare
+# con l'oro. Qui l'unica via di salvezza e' la menzione esplicita dell'oro
+# (non basta "US"/"Fed" come per le valute sopra, William ha chiesto un filtro
+# piu' stretto: anche notizie che coinvolgono gli USA ma sono centrate su un
+# altro paese, tipo dazi USA-Canada, non contano)
+OTHER_COUNTRY_TERMS = [
+    "canada", "canadian", "new zealand", "australia", "australian",
+    "japan", "japanese", "britain", "british", " uk ", "china", "chinese",
+    "eurozone", "germany", "german", "france", "french",
+]
+GOLD_EXPLICIT_TERMS = ["gold", "oro", "xau"]
+
+
+def is_other_country_news(title):
+    t = " " + title.lower() + " "
+    has_other_country = any(term in t for term in OTHER_COUNTRY_TERMS)
+    has_gold = any(term in t for term in GOLD_EXPLICIT_TERMS)
+    return has_other_country and not has_gold
+
+
 NEWS_STATE_FILE = "seen_ids.json"
 CALENDAR_STATE_FILE = "seen_calendar.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
@@ -186,6 +209,8 @@ def matches_keywords(title):
     if is_retrospective_news(title):
         return False
     if is_other_currency_news(title):
+        return False
+    if is_other_country_news(title):
         return False
     t = title.lower()
     if any(kw in t for kw in STRONG_KEYWORDS):
