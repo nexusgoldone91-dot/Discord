@@ -1,8 +1,6 @@
 name: Notizie XAU/USD (ogni ~29 minuti)
 
 on:
-  schedule:
-    - cron: "5,34 * * * *"
   workflow_dispatch: {}
 
 permissions:
