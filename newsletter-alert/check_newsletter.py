@@ -13,8 +13,17 @@ giro cosi' i riavvii del workflow non perdono la memoria).
 """
 
 import os
+import re
 import json
 import urllib.request
+
+# toglie il suffisso amministrativo Brevo tipo " - Edizione #15" o " - 20",
+# lasciando solo il nome pulito dell'argomento (es. "Recap e informazioni")
+EDITION_SUFFIX_RE = re.compile(r"\s*-\s*(Edizione\s*#?\d+|\d+)\s*$", re.IGNORECASE)
+
+
+def clean_title(name):
+    return EDITION_SUFFIX_RE.sub("", name).strip()
 
 BREVO_API_KEY = os.environ["BREVO_API_KEY"]
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
@@ -84,8 +93,8 @@ def run():
 
     # ordine cronologico (dalla piu' vecchia alla piu' nuova tra quelle nuove)
     for c in sorted(new_ones, key=lambda c: c.get("sentDate") or ""):
-        subject = c.get("subject") or c.get("name") or "Nuova email"
-        post_to_discord(f'È uscita una nuova email: "{subject}"')
+        title = clean_title(c.get("name") or c.get("subject") or "Nuova email")
+        post_to_discord(f'È uscita una nuova email: "{title}"')
 
 
 if __name__ == "__main__":
