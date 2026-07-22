@@ -94,7 +94,7 @@ def run():
     # ordine cronologico (dalla piu' vecchia alla piu' nuova tra quelle nuove)
     for c in sorted(new_ones, key=lambda c: c.get("sentDate") or ""):
         title = clean_title(c.get("name") or c.get("subject") or "Nuova email")
-        post_to_discord(f'È uscita una nuova email: "{title}"')
+        post_to_discord(f'📰 È uscita una nuova email: "{title}"')
 
 
 if __name__ == "__main__":
