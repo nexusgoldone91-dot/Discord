@@ -1,0 +1,33 @@
+name: Annuncio Newsletter Brevo su Discord (a chiamata, cron-job.org)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Controlla nuove email Brevo e annuncia su Discord
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID_NEWSLETTER: ${{ secrets.DISCORD_CHANNEL_ID_NEWSLETTER }}
+        run: python newsletter-alert/check_newsletter.py
+
+      - name: Salva lo stato (campagne già annunciate)
+        run: |
+          git config user.name "newsletter-alert-bot"
+          git config user.email "actions@github.com"
+          git pull --no-edit || true
+          git add newsletter-alert/seen_campaigns.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato campagne annunciate"
+          git push || true
