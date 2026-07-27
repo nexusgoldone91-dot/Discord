@@ -2,15 +2,14 @@
 """
 Controllo automatico XAU/USD via GitHub Actions - due workflow separati:
 news.yml (check_news, ogni ~29 minuti) e calendar.yml (check_calendar_countdown
-+ check_weekly_summary, una volta all'ora).
++ check_weekly_summary, ogni 5 minuti - vedi cron-job.org).
 
 Due canali Discord separati:
 - #info-dal-mondo: notizie generiche (geopolitica, Trump, Fed) da feed RSS,
   solo titolo tradotto in italiano, niente corpo/link/fonte.
 - #calendario-news: calendario economico USA (Forex Factory) - ogni lunedi
-  (nel giro dell'ora 7, orario esatto dipende da quando il workflow orario
-  cade quel giorno) un riepilogo semplice della settimana, e un avviso quando
-  manca meno di un'ora a un dato ad alto impatto con i valori attesi/precedenti.
+  (nel giro dell'ora 7) un riepilogo semplice della settimana, e un avviso
+  a ~10 minuti fissi prima di un dato ad alto impatto con i valori attesi/precedenti.
 
 Nessuna chiamata a modelli AI a pagamento: solo parole chiave e dati.
 """
@@ -336,10 +335,13 @@ def pick_primary_event(items):
 
 
 def check_calendar_countdown():
-    """Avvisa 15-20 minuti prima di dati USD ad alto impatto, raggruppati per evento/orario."""
+    """Avvisa a ~10 minuti fissi prima di dati USD ad alto impatto, raggruppati per evento/orario.
+    Richiede un controllo frequente (ogni 5 minuti circa, vedi cron-job.org) per centrare
+    la finestra stretta [6,14] minuti senza perdere eventi tra un giro e l'altro."""
     events = fetch_calendar_events()
     now_italy = datetime.now(ITALY_TZ)
-    window_end = now_italy + timedelta(minutes=70)  # controllo ora orario, finestra allargata per non perdere eventi tra un giro e l'altro
+    window_start = now_italy + timedelta(minutes=6)
+    window_end = now_italy + timedelta(minutes=14)
 
     already_alerted = load_state(CALENDAR_STATE_FILE)
     still_relevant_ids = set()
@@ -353,7 +355,8 @@ def check_calendar_countdown():
             continue
         event_id = f"{ev['title']}|{ev['date']}|{ev['time']}"
         if now_italy <= dt <= window_end:
-            still_relevant_ids.add(event_id)
+            still_relevant_ids.add(event_id)  # resta "visto" finche' non passa, cosi' non si rialerta se si perde la finestra stretta
+        if window_start <= dt <= window_end:
             if event_id not in already_alerted:
                 simple_name = simplify_name(ev["title"])
                 groups[(ev["date"], ev["time"], simple_name)].append((ev, dt))
@@ -362,16 +365,14 @@ def check_calendar_countdown():
 
     messages = []
     for (date_str, time_str, simple_name), items in groups.items():
-        dt = items[0][1]
-        minutes_left = int((dt - now_italy).total_seconds() // 60)
         primary_ev, _ = pick_primary_event(items)
 
         if primary_ev["forecast"] or primary_ev["previous"]:
             forecast_txt = primary_ev["forecast"] if primary_ev["forecast"] else "non disponibile"
             previous_txt = f" (precedente {primary_ev['previous']})" if primary_ev["previous"] else ""
-            msg = f"⏰ -{minutes_left} Minuti al {simple_name}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
+            msg = f"⏰ -10 Minuti al {simple_name}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
         else:
-            msg = f"⏰ -{minutes_left} Minuti al {simple_name}"
+            msg = f"⏰ -10 Minuti al {simple_name}"
         messages.append(msg)
 
     return messages
