@@ -18,6 +18,7 @@ import os
 import re
 import json
 import html
+import time
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -405,6 +406,7 @@ def schedule_precise_alerts(grouped_full):
             print(f"Allarme creato per {simple_name} alle {alert_time.strftime('%d-%m %H:%M')}: job {result.get('jobId')}")
         except urllib.error.HTTPError as e:
             print(f"Errore creando l'allarme per {simple_name}: {e.code} {e.read()}")
+        time.sleep(3)  # cron-job.org limita le creazioni troppo ravvicinate (429), pausa di sicurezza tra una e l'altra
 
 
 def check_weekly_summary():
