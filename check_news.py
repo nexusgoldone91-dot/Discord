@@ -36,6 +36,10 @@ CRONJOB_API_KEY = os.environ.get("CRONJOB_API_KEY")
 GH_TRIGGER_TOKEN = os.environ.get("GH_TRIGGER_TOKEN")
 GITHUB_REPO = "nexusgoldone91-dot/Discord"
 
+# usati solo dal workflow newsletter.yml (assenti altrove, per questo os.environ.get)
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
+DISCORD_CHANNEL_ID_NEWSLETTER = os.environ.get("DISCORD_CHANNEL_ID_NEWSLETTER")
+
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
     "https://www.investing.com/rss/news_1.rss",          # Economic news
@@ -153,6 +157,7 @@ def is_other_country_news(title):
 
 NEWS_STATE_FILE = "seen_ids.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
+NEWSLETTER_STATE_FILE = "seen_newsletter.json"
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -504,6 +509,46 @@ def run_calendar():
         print("Nessun riepilogo settimanale da mandare ora.")
 
 
+def check_newsletter():
+    """Controlla via API Brevo le campagne realmente inviate (`status=sent`) e
+    ritorna quelle non ancora annunciate su Discord (confrontate con
+    NEWSLETTER_STATE_FILE). Gira sul repo GitHub, non su una sessione/PC di
+    William, cosi' l'annuncio parte da solo anche a Mac spento."""
+    if not BREVO_API_KEY or not DISCORD_CHANNEL_ID_NEWSLETTER:
+        print("BREVO_API_KEY o DISCORD_CHANNEL_ID_NEWSLETTER mancanti, salto il controllo newsletter.")
+        return []
+
+    url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
+    req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
+    with urllib.request.urlopen(req) as resp:
+        data = json.load(resp)
+
+    already_sent = load_state(NEWSLETTER_STATE_FILE)
+    nuove = [c for c in data.get("campaigns", []) if str(c["id"]) not in already_sent]
+    if not nuove:
+        return []
+
+    messaggi = []
+    for c in nuove:
+        nome = c["name"]
+        oggetto = c.get("subject", "")
+        messaggi.append((c["id"], f"📰 Uscita Newsletter: {nome}\n{oggetto}"))
+
+    save_state(NEWSLETTER_STATE_FILE, already_sent | {str(c["id"]) for c in nuove})
+    return messaggi
+
+
+def run_newsletter():
+    """Annuncio automatico su #newsletter quando una campagna Brevo risulta
+    davvero inviata (workflow newsletter.yml, girato via cron-job.org)."""
+    messaggi = check_newsletter()
+    for campaign_id, msg in messaggi:
+        post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
+        print(f"Annunciata su Discord campagna {campaign_id}")
+    if not messaggi:
+        print("Nessuna nuova campagna da annunciare.")
+
+
 def run_alert_event():
     """Manda l'annuncio a 10 minuti fissi per UNA singola notizia (workflow alert_event.yml,
     attivato da un allarme cron-job.org creato su misura da schedule_precise_alerts)."""
@@ -529,6 +574,8 @@ if __name__ == "__main__":
         run_calendar()
     elif mode == "alert_event":
         run_alert_event()
+    elif mode == "newsletter":
+        run_newsletter()
     else:
         run_news()
         run_calendar()
