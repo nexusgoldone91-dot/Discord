@@ -1,0 +1,79 @@
+name: TEST temporaneo - pipeline PDF (da cancellare dopo il test)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installa Playwright
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Test genera PDF + upload/cancella su Drive (file scartabile)
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, urllib.request, urllib.parse
+          from playwright.sync_api import sync_playwright
+
+          with open("_t.html", "w") as f:
+              f.write("<html><body><h1>Test automazione PDF</h1><p>Questo file va cancellato subito dopo il test.</p></body></html>")
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page(viewport={"width": 600, "height": 1000})
+              page.goto(f"file://{os.path.abspath('_t.html')}")
+              page.wait_for_load_state("networkidle")
+              page.pdf(path="_t.pdf", width="600px", height="400px", print_background=True)
+              browser.close()
+          print("PDF generato:", os.path.getsize("_t.pdf"), "bytes")
+
+          data = urllib.parse.urlencode({
+              "client_id": os.environ["GDRIVE_CLIENT_ID"],
+              "client_secret": os.environ["GDRIVE_CLIENT_SECRET"],
+              "refresh_token": os.environ["GDRIVE_REFRESH_TOKEN"],
+              "grant_type": "refresh_token",
+          }).encode()
+          req = urllib.request.Request("https://oauth2.googleapis.com/token", data=data, method="POST")
+          with urllib.request.urlopen(req) as resp:
+              access_token = json.load(resp)["access_token"]
+          print("Access token Drive ottenuto")
+
+          metadata = {"name": "TEST_workflow_borrar.pdf", "parents": ["1pkppWoejcQ9qK1hZC6Z8s-xWH_R85ZCI"]}
+          # cartella "NexusGoldOne - Immagini Newsletter" (scratch, usata per asset di lavoro)
+          boundary = "-------test-boundary"
+          with open("_t.pdf", "rb") as f:
+              pdf_bytes = f.read()
+          body = (
+              f"--{boundary}\r\n"
+              "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+              f"{json.dumps(metadata)}\r\n"
+              f"--{boundary}\r\n"
+              "Content-Type: application/pdf\r\n\r\n"
+          ).encode() + pdf_bytes + f"\r\n--{boundary}--".encode()
+          req = urllib.request.Request(
+              "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+              data=body, method="POST",
+              headers={"Authorization": f"Bearer {access_token}", "Content-Type": f"multipart/related; boundary={boundary}"},
+          )
+          with urllib.request.urlopen(req) as resp:
+              result = json.load(resp)
+          file_id = result["id"]
+          print("Upload test riuscito, file id:", file_id)
+
+          req = urllib.request.Request(f"https://www.googleapis.com/drive/v3/files/{file_id}", method="DELETE", headers={"Authorization": f"Bearer {access_token}"})
+          with urllib.request.urlopen(req) as resp:
+              print("Test file cancellato, status:", resp.status)
+          PYEOF
