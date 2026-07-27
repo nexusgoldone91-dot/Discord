@@ -72,7 +72,9 @@ def check_landing(issues):
                 if resp.status >= 400:
                     issues.append(f"[Landing] Link esterno {url} risponde {resp.status}")
         except urllib.error.HTTPError as e:
-            if e.code >= 400 and e.code != 405:
+            # 405 = HEAD non supportato, non e' un errore del link
+            # 429 = rate limit (Instagram blocca aggressivamente le richieste automatiche, non vuol dire che il link e' rotto)
+            if e.code >= 400 and e.code not in (405, 429):
                 issues.append(f"[Landing] Link esterno {url} risponde {e.code}")
         except Exception as e:
             issues.append(f"[Landing] Link esterno {url} non raggiungibile: {e}")
