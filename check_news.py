@@ -39,7 +39,7 @@ NEWS_FEEDS = [
 ]
 
 CALENDAR_FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
-CALENDAR_TZ = ZoneInfo("America/New_York")  # convenzione documentata di questo feed
+CALENDAR_TZ = ZoneInfo("UTC")  # verificato il 27/7/2026 con dati reali (FOMC 14:00 ET = 18:00 UTC nel feed): il feed fornisce gli orari in UTC, non in ET come si pensava prima
 ITALY_TZ = ZoneInfo("Europe/Rome")
 
 GIORNI_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
