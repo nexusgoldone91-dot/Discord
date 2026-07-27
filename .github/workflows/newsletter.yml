@@ -1,4 +1,4 @@
-name: Annuncio Newsletter Brevo su Discord (a chiamata, cron-job.org)
+name: Annuncio Newsletter su Discord (ogni 20 minuti)
 
 on:
   workflow_dispatch: {}
@@ -16,18 +16,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Controlla nuove email Brevo e annuncia su Discord
+      - name: Controlla campagne Brevo inviate e annuncia su Discord
         env:
-          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID_NEWSLETTER: ${{ secrets.DISCORD_CHANNEL_ID_NEWSLETTER }}
-        run: python newsletter-alert/check_newsletter.py
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID_USD: ${{ secrets.DISCORD_CHANNEL_ID_USD }}
+        run: python check_news.py newsletter
 
       - name: Salva lo stato (campagne già annunciate)
         run: |
-          git config user.name "newsletter-alert-bot"
+          git config user.name "xauusd-alert-bot"
           git config user.email "actions@github.com"
           git pull --no-edit || true
-          git add newsletter-alert/seen_campaigns.json || true
-          git diff --staged --quiet || git commit -m "aggiorna stato campagne annunciate"
+          git add seen_newsletter.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato annunci newsletter"
           git push || true
