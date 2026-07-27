@@ -39,6 +39,13 @@ GITHUB_REPO = "nexusgoldone91-dot/Discord"
 # usati solo dal workflow newsletter.yml (assenti altrove, per questo os.environ.get)
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 DISCORD_CHANNEL_ID_NEWSLETTER = os.environ.get("DISCORD_CHANNEL_ID_NEWSLETTER")
+GDRIVE_CLIENT_ID = os.environ.get("GDRIVE_CLIENT_ID")
+GDRIVE_CLIENT_SECRET = os.environ.get("GDRIVE_CLIENT_SECRET")
+GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
+
+# cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
+GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
+GDRIVE_FOLDER_XAUUSD = "1Mhw_RdsAB7ka-IwtWbWP8mPVOh0r9Okv"  # "Analisi XAUUSD", serie ad-hoc
 
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
@@ -509,6 +516,130 @@ def run_calendar():
         print("Nessun riepilogo settimanale da mandare ora.")
 
 
+XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
+
+
+def get_gdrive_access_token():
+    data = urllib.parse.urlencode({
+        "client_id": GDRIVE_CLIENT_ID,
+        "client_secret": GDRIVE_CLIENT_SECRET,
+        "refresh_token": GDRIVE_REFRESH_TOKEN,
+        "grant_type": "refresh_token",
+    }).encode()
+    req = urllib.request.Request("https://oauth2.googleapis.com/token", data=data, method="POST")
+    with urllib.request.urlopen(req) as resp:
+        return json.load(resp)["access_token"]
+
+
+def gdrive_list_files(access_token, folder_id):
+    q = urllib.parse.quote(f"'{folder_id}' in parents and trashed=false")
+    url = f"https://www.googleapis.com/drive/v3/files?q={q}&fields=files(id,name)&pageSize=1000"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+    with urllib.request.urlopen(req) as resp:
+        return json.load(resp).get("files", [])
+
+
+def gdrive_upload_pdf(access_token, pdf_bytes, filename, folder_id):
+    metadata = {"name": filename, "parents": [folder_id]}
+    boundary = "-------nexusgoldone-pdf-boundary"
+    body = (
+        f"--{boundary}\r\n"
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{json.dumps(metadata)}\r\n"
+        f"--{boundary}\r\n"
+        "Content-Type: application/pdf\r\n\r\n"
+    ).encode() + pdf_bytes + f"\r\n--{boundary}--".encode()
+    req = urllib.request.Request(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        data=body, method="POST",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": f"multipart/related; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.load(resp)
+
+
+def generate_pdf_from_html(html_content):
+    """Stessa tecnica di pdf-agent/pdf_agent.py (viewport 600px, altezza dinamica,
+    PDF a pagina singola continua) - qui via Playwright installato nel runner GitHub Actions."""
+    from playwright.sync_api import sync_playwright
+
+    tmp_path = "_tmp_campaign.html"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    output_path = "_tmp_campaign.pdf"
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={"width": 600, "height": 1000})
+            page.goto(f"file://{os.path.abspath(tmp_path)}")
+            page.wait_for_load_state("networkidle")
+            content_height = page.evaluate(
+                """
+                () => {
+                    const bh = document.body.scrollHeight;
+                    const dh = document.documentElement.scrollHeight;
+                    let maxBottom = 0;
+                    document.querySelectorAll('*').forEach(el => {
+                        const r = el.getBoundingClientRect();
+                        if (r.bottom > maxBottom) maxBottom = r.bottom;
+                    });
+                    return Math.max(bh, dh, maxBottom);
+                }
+                """
+            ) + 2
+            page.pdf(
+                path=output_path, width="600px", height=f"{content_height}px",
+                print_background=True, margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+            )
+            browser.close()
+        with open(output_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in (tmp_path, output_path):
+            if os.path.exists(p):
+                os.remove(p)
+
+
+def genera_e_carica_pdf(campaign_id, campaign_name):
+    """Genera il PDF di una campagna Brevo e lo carica nella cartella Drive giusta,
+    capendo dal nome campagna se e' un'edizione numerata o la serie ad-hoc XAUUSD."""
+    if not (GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET and GDRIVE_REFRESH_TOKEN):
+        print("Credenziali Google Drive mancanti, salto la generazione PDF.")
+        return
+
+    m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
+    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
+    if not m_xau and not m_ed:
+        print(f"Nome campagna '{campaign_name}' non riconosciuto (ne' 'Aggiornamento XAUUSD ...' ne' '... - Edizione #NN'), salto il PDF.")
+        return
+
+    req = urllib.request.Request(
+        f"https://api.brevo.com/v3/emailCampaigns/{campaign_id}",
+        headers={"api-key": BREVO_API_KEY, "accept": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        campaign = json.load(resp)
+    html_content = campaign["htmlContent"]
+
+    access_token = get_gdrive_access_token()
+
+    if m_xau:
+        data_str = m_xau.group(1)
+        folder_id = GDRIVE_FOLDER_XAUUSD
+        esistenti = gdrive_list_files(access_token, folder_id)
+        numero = len(esistenti) + 1
+        filename = f"{numero}. Analisi del {data_str}.pdf"
+    else:
+        titolo, numero_str = m_ed.group(1), m_ed.group(2)
+        folder_id = GDRIVE_FOLDER_NEWSLETTER
+        filename = f"{int(numero_str)}. {titolo}.pdf"
+
+    pdf_bytes = generate_pdf_from_html(html_content)
+    result = gdrive_upload_pdf(access_token, pdf_bytes, filename, folder_id)
+    print(f"PDF caricato su Drive: {filename} (id {result.get('id')})")
+
+
 def check_newsletter():
     """Controlla via API Brevo le campagne realmente inviate (`status=sent`) e
     ritorna quelle non ancora annunciate su Discord (confrontate con
@@ -532,19 +663,24 @@ def check_newsletter():
     for c in nuove:
         nome = c["name"]
         oggetto = c.get("subject", "")
-        messaggi.append((c["id"], f"📰 Uscita Newsletter: {nome}\n{oggetto}"))
+        messaggi.append((c["id"], nome, f"📰 Uscita Newsletter: {nome}\n{oggetto}"))
 
     save_state(NEWSLETTER_STATE_FILE, already_sent | {str(c["id"]) for c in nuove})
     return messaggi
 
 
 def run_newsletter():
-    """Annuncio automatico su #newsletter quando una campagna Brevo risulta
-    davvero inviata (workflow newsletter.yml, girato via cron-job.org)."""
+    """Annuncio automatico su #newsletter + generazione/upload PDF su Drive,
+    quando una campagna Brevo risulta davvero inviata (workflow newsletter.yml,
+    girato via cron-job.org - nessuna dipendenza da Mac/sessione aperta)."""
     messaggi = check_newsletter()
-    for campaign_id, msg in messaggi:
+    for campaign_id, campaign_name, msg in messaggi:
         post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
         print(f"Annunciata su Discord campagna {campaign_id}")
+        try:
+            genera_e_carica_pdf(campaign_id, campaign_name)
+        except Exception as e:
+            print(f"Errore generando/caricando il PDF per la campagna {campaign_id}: {e}")
     if not messaggi:
         print("Nessuna nuova campagna da annunciare.")
 
