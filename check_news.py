@@ -40,7 +40,7 @@ NEWS_FEEDS = [
 
 CALENDAR_FEED = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
 CALENDAR_TZ = ZoneInfo("America/New_York")  # convenzione documentata di questo feed
-CANARY_TZ = ZoneInfo("Atlantic/Canary")
+ITALY_TZ = ZoneInfo("Europe/Rome")
 
 GIORNI_IT = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
 MESI_IT = [
@@ -278,15 +278,15 @@ def fetch_calendar_events():
     return events
 
 
-def parse_event_datetime_canary(ev):
-    """Converte data/ora dell'evento (fuso del feed, ET) in ora Canarie."""
+def parse_event_datetime_italy(ev):
+    """Converte data/ora dell'evento (fuso del feed, ET) in ora italiana."""
     t = ev["time"].lower()
     if "am" not in t and "pm" not in t:
         return None
     try:
         dt = datetime.strptime(f"{ev['date']} {ev['time']}", "%m-%d-%Y %I:%M%p")
         dt = dt.replace(tzinfo=CALENDAR_TZ)
-        return dt.astimezone(CANARY_TZ)
+        return dt.astimezone(ITALY_TZ)
     except ValueError:
         return None
 
@@ -338,8 +338,8 @@ def pick_primary_event(items):
 def check_calendar_countdown():
     """Avvisa 15-20 minuti prima di dati USD ad alto impatto, raggruppati per evento/orario."""
     events = fetch_calendar_events()
-    now_canary = datetime.now(CANARY_TZ)
-    window_end = now_canary + timedelta(minutes=70)  # controllo ora orario, finestra allargata per non perdere eventi tra un giro e l'altro
+    now_italy = datetime.now(ITALY_TZ)
+    window_end = now_italy + timedelta(minutes=70)  # controllo ora orario, finestra allargata per non perdere eventi tra un giro e l'altro
 
     already_alerted = load_state(CALENDAR_STATE_FILE)
     still_relevant_ids = set()
@@ -348,11 +348,11 @@ def check_calendar_countdown():
     for ev in events:
         if ev["country"] != "USD" or ev["impact"] != "High":
             continue
-        dt = parse_event_datetime_canary(ev)
+        dt = parse_event_datetime_italy(ev)
         if dt is None:
             continue
         event_id = f"{ev['title']}|{ev['date']}|{ev['time']}"
-        if now_canary <= dt <= window_end:
+        if now_italy <= dt <= window_end:
             still_relevant_ids.add(event_id)
             if event_id not in already_alerted:
                 simple_name = simplify_name(ev["title"])
@@ -363,7 +363,7 @@ def check_calendar_countdown():
     messages = []
     for (date_str, time_str, simple_name), items in groups.items():
         dt = items[0][1]
-        minutes_left = int((dt - now_canary).total_seconds() // 60)
+        minutes_left = int((dt - now_italy).total_seconds() // 60)
         primary_ev, _ = pick_primary_event(items)
 
         if primary_ev["forecast"] or primary_ev["previous"]:
@@ -378,15 +378,15 @@ def check_calendar_countdown():
 
 
 def check_weekly_summary():
-    """Ogni lunedi 7:00-7:14 ora Canarie, riepilogo semplice della settimana USD."""
-    now_canary = datetime.now(CANARY_TZ)
+    """Ogni lunedi 7:00-7:14 ora italiana, riepilogo semplice della settimana USD."""
+    now_italy = datetime.now(ITALY_TZ)
     # il workflow gira una volta all'ora al minuto :47 - quindi lunedi' l'unico
     # giro nella fascia 7:xx e' alle 7:47, non serve un controllo sui minuti
-    if not (now_canary.weekday() == 0 and now_canary.hour == 7):
+    if not (now_italy.weekday() == 0 and now_italy.hour == 7):
         return []
 
     already_sent = load_state(WEEKLY_STATE_FILE)
-    week_key = now_canary.strftime("%Y-W%U")
+    week_key = now_italy.strftime("%Y-W%U")
     if week_key in already_sent:
         return []
 
@@ -396,7 +396,7 @@ def check_weekly_summary():
     # raggruppa per (data, ora, nome semplificato) cosi CPI non compare 4 volte
     grouped = {}
     for ev in usd_events:
-        dt = parse_event_datetime_canary(ev)
+        dt = parse_event_datetime_italy(ev)
         if dt is None:
             continue
         simple_name = simplify_name(ev["title"])
@@ -406,7 +406,7 @@ def check_weekly_summary():
 
     ordered = sorted(grouped.items(), key=lambda kv: kv[1])
 
-    monday = now_canary - timedelta(days=now_canary.weekday())
+    monday = now_italy - timedelta(days=now_italy.weekday())
     sunday = monday + timedelta(days=6)
     date_range = f"dal {monday.strftime('%d-%m-%Y')} al {sunday.strftime('%d-%m-%Y')}"
 
@@ -439,7 +439,7 @@ def post_to_discord(channel_id, content):
         headers={
             "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
             "Content-Type": "application/json",
-            "User-Agent": "NexusGoldOneBot (https://nexusgoldone.gold, 1.0)",
+            "User-Agent": "NexusGoldOneBot (https://nexusgoldone.com, 1.0)",
         },
     )
     with urllib.request.urlopen(req) as resp:
