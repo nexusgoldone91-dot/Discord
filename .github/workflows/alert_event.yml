@@ -1,0 +1,42 @@
+name: Alert preciso singola notizia (10 minuti prima)
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_name:
+        description: "Nome semplificato della notizia (es. CPI)"
+        required: true
+        type: string
+      forecast:
+        description: "Valore previsto, o 'non disponibile'"
+        required: false
+        type: string
+        default: "non disponibile"
+      previous:
+        description: "Valore precedente (vuoto se non disponibile)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Manda l'annuncio a 10 minuti fissi
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID_USD: ${{ secrets.DISCORD_CHANNEL_ID_USD }}
+          EVENT_NAME: ${{ inputs.event_name }}
+          EVENT_FORECAST: ${{ inputs.forecast }}
+          EVENT_PREVIOUS: ${{ inputs.previous }}
+        run: python check_news.py alert_event
