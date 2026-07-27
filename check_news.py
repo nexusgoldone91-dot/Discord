@@ -29,6 +29,12 @@ DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 DISCORD_CHANNEL_ID_NEWS = os.environ["DISCORD_CHANNEL_ID"]
 DISCORD_CHANNEL_ID_USD = os.environ["DISCORD_CHANNEL_ID_USD"]
 
+# usati solo dal workflow calendar.yml per creare gli allarmi precisi a 10 minuti
+# (assenti su news.yml/alert_event.yml, per questo os.environ.get e non os.environ[])
+CRONJOB_API_KEY = os.environ.get("CRONJOB_API_KEY")
+GH_TRIGGER_TOKEN = os.environ.get("GH_TRIGGER_TOKEN")
+GITHUB_REPO = "nexusgoldone91-dot/Discord"
+
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
     "https://www.investing.com/rss/news_1.rss",          # Economic news
@@ -145,7 +151,6 @@ def is_other_country_news(title):
 
 
 NEWS_STATE_FILE = "seen_ids.json"
-CALENDAR_STATE_FILE = "seen_calendar.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -334,48 +339,72 @@ def pick_primary_event(items):
     return min(pool, key=score)
 
 
-def check_calendar_countdown():
-    """Avvisa a ~10 minuti fissi prima di dati USD ad alto impatto, raggruppati per evento/orario.
-    Richiede un controllo frequente (ogni 5 minuti circa, vedi cron-job.org) per centrare
-    la finestra stretta [6,14] minuti senza perdere eventi tra un giro e l'altro."""
-    events = fetch_calendar_events()
-    now_italy = datetime.now(ITALY_TZ)
-    window_start = now_italy + timedelta(minutes=6)
-    window_end = now_italy + timedelta(minutes=14)
+def schedule_precise_alerts(grouped_full):
+    """Crea, per ogni notizia della settimana, un allarme cron-job.org su misura
+    che scatta esattamente 10 minuti prima (non un controllo a ripetizione).
+    Chiamata una volta sola, quando esce il riepilogo del lunedi."""
+    if not CRONJOB_API_KEY or not GH_TRIGGER_TOKEN:
+        print("CRONJOB_API_KEY o GH_TRIGGER_TOKEN mancanti, salto la creazione degli allarmi precisi.")
+        return
 
-    already_alerted = load_state(CALENDAR_STATE_FILE)
-    still_relevant_ids = set()
-    groups = defaultdict(list)  # (date, time, simple_name) -> [eventi]
+    headers = {"Authorization": f"Bearer {CRONJOB_API_KEY}", "Content-Type": "application/json"}
 
-    for ev in events:
-        if ev["country"] != "USD" or ev["impact"] != "High":
-            continue
-        dt = parse_event_datetime_italy(ev)
-        if dt is None:
-            continue
-        event_id = f"{ev['title']}|{ev['date']}|{ev['time']}"
-        if now_italy <= dt <= window_end:
-            still_relevant_ids.add(event_id)  # resta "visto" finche' non passa, cosi' non si rialerta se si perde la finestra stretta
-        if window_start <= dt <= window_end:
-            if event_id not in already_alerted:
-                simple_name = simplify_name(ev["title"])
-                groups[(ev["date"], ev["time"], simple_name)].append((ev, dt))
+    for (_, _, simple_name), items in grouped_full.items():
+        dt = items[0][1]
+        alert_time = dt - timedelta(minutes=10)
+        if alert_time <= datetime.now(ITALY_TZ):
+            continue  # evento troppo vicino/gia' passato, non ha senso schedulare
 
-    save_state(CALENDAR_STATE_FILE, still_relevant_ids | (already_alerted & still_relevant_ids))
-
-    messages = []
-    for (date_str, time_str, simple_name), items in groups.items():
         primary_ev, _ = pick_primary_event(items)
+        forecast_txt = primary_ev["forecast"] if primary_ev["forecast"] else "non disponibile"
+        previous_txt = primary_ev["previous"] if primary_ev["previous"] else ""
 
-        if primary_ev["forecast"] or primary_ev["previous"]:
-            forecast_txt = primary_ev["forecast"] if primary_ev["forecast"] else "non disponibile"
-            previous_txt = f" (precedente {primary_ev['previous']})" if primary_ev["previous"] else ""
-            msg = f"⏰ -10 Minuti al {simple_name}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
-        else:
-            msg = f"⏰ -10 Minuti al {simple_name}"
-        messages.append(msg)
+        body = json.dumps({
+            "ref": "main",
+            "inputs": {
+                "event_name": simple_name,
+                "forecast": forecast_txt,
+                "previous": previous_txt,
+            },
+        })
 
-    return messages
+        payload = {
+            "job": {
+                "title": f"Alert 10min - {simple_name} {alert_time.strftime('%d-%m %H:%M')}",
+                "url": f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/alert_event.yml/dispatches",
+                "enabled": True,
+                "saveResponses": True,
+                "requestMethod": 1,
+                "extendedData": {
+                    "headers": {
+                        "Accept": "application/vnd.github+json",
+                        "Authorization": f"token {GH_TRIGGER_TOKEN}",
+                    },
+                    "body": body,
+                },
+                "schedule": {
+                    "timezone": "Europe/Rome",
+                    "hours": [alert_time.hour],
+                    "mdays": [alert_time.day],
+                    "minutes": [alert_time.minute],
+                    "months": [alert_time.month],
+                    "wdays": [-1],
+                },
+            }
+        }
+
+        req = urllib.request.Request(
+            "https://api.cron-job.org/jobs",
+            data=json.dumps(payload).encode("utf-8"),
+            method="PUT",
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                result = json.load(resp)
+            print(f"Allarme creato per {simple_name} alle {alert_time.strftime('%d-%m %H:%M')}: job {result.get('jobId')}")
+        except urllib.error.HTTPError as e:
+            print(f"Errore creando l'allarme per {simple_name}: {e.code} {e.read()}")
 
 
 def check_weekly_summary():
@@ -395,17 +424,20 @@ def check_weekly_summary():
     usd_events = [ev for ev in events if ev["country"] == "USD" and ev["impact"] == "High"]
 
     # raggruppa per (data, ora, nome semplificato) cosi CPI non compare 4 volte
-    grouped = {}
+    # tiene anche tutte le varianti (ev, dt) per poter recuperare forecast/previous dopo
+    grouped_full = defaultdict(list)
     for ev in usd_events:
         dt = parse_event_datetime_italy(ev)
         if dt is None:
             continue
         simple_name = simplify_name(ev["title"])
         key = (dt.date(), dt.strftime("%H:%M"), simple_name)
-        if key not in grouped:
-            grouped[key] = dt
+        grouped_full[key].append((ev, dt))
 
+    grouped = {key: items[0][1] for key, items in grouped_full.items()}
     ordered = sorted(grouped.items(), key=lambda kv: kv[1])
+
+    schedule_precise_alerts(grouped_full)
 
     monday = now_italy - timedelta(days=now_italy.weekday())
     sunday = monday + timedelta(days=6)
@@ -458,18 +490,32 @@ def run_news():
 
 
 def run_calendar():
-    """Controllo calendario/countdown USD - gira una volta all'ora (workflow calendar.yml)."""
+    """Riepilogo settimanale USD - gira una volta all'ora, di fatto agisce solo
+    il lunedi nell'ora 7 (workflow calendar.yml). Il countdown a 10 minuti fissi
+    NON passa piu' da qui (vedi check_calendar_countdown, non piu' chiamata):
+    e' sostituito da allarmi precisi creati uno per uno da schedule_precise_alerts,
+    che scattano da soli via il workflow alert_event.yml esattamente all'orario giusto."""
     weekly_lines = check_weekly_summary()
     for msg in weekly_lines:
         post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
     if not weekly_lines:
         print("Nessun riepilogo settimanale da mandare ora.")
 
-    countdown_messages = check_calendar_countdown()
-    for msg in countdown_messages:
-        post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
-    if not countdown_messages:
-        print("Nessun dato USD ad alto impatto nella prossima ora.")
+
+def run_alert_event():
+    """Manda l'annuncio a 10 minuti fissi per UNA singola notizia (workflow alert_event.yml,
+    attivato da un allarme cron-job.org creato su misura da schedule_precise_alerts)."""
+    event_name = os.environ["EVENT_NAME"]
+    forecast_txt = os.environ.get("EVENT_FORECAST", "non disponibile")
+    previous_raw = os.environ.get("EVENT_PREVIOUS", "")
+
+    if forecast_txt and forecast_txt != "non disponibile":
+        previous_txt = f" (precedente {previous_raw})" if previous_raw else ""
+        msg = f"⏰ -10 Minuti al {event_name}\nEcco i dati previsti: {forecast_txt}{previous_txt}"
+    else:
+        msg = f"⏰ -10 Minuti al {event_name}"
+
+    post_to_discord(DISCORD_CHANNEL_ID_USD, msg)
 
 
 if __name__ == "__main__":
@@ -479,6 +525,8 @@ if __name__ == "__main__":
         run_news()
     elif mode == "calendar":
         run_calendar()
+    elif mode == "alert_event":
+        run_alert_event()
     else:
         run_news()
         run_calendar()
