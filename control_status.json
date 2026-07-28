@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-07-28T11:15:29Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-07-28T14:15:35Z",
+  "ok": false,
+  "issues": [
+    "[Brevo] Impossibile leggere le campagne: HTTP Error 403: Forbidden"
+  ]
 }
