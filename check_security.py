@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 BREVO_API_KEY = os.environ["BREVO_API_KEY"]
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
-DISCORD_ALERT_CHANNEL_ID = os.environ["DISCORD_ALERT_CHANNEL_ID"]
+DISCORD_USER_ID_WILLIAM = os.environ["DISCORD_USER_ID_WILLIAM"]
 
 USER_AGENT = "NexusGoldOne-SecurityAgent/1.0 (https://nexusgoldone.com)"
 LANDING_DOMAIN = "nexusgoldone.com"
@@ -145,9 +145,23 @@ def check_ssl_certificate_expiry(days_warning=21):
 
 
 def post_discord_alert(message):
+    """Manda l'alert in DM privato a William, mai in un canale del server."""
+    dm_payload = json.dumps({"recipient_id": DISCORD_USER_ID_WILLIAM}).encode()
+    dm_req = urllib.request.Request(
+        "https://discord.com/api/v10/users/@me/channels",
+        data=dm_payload, method="POST",
+        headers={
+            "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+    )
+    with urllib.request.urlopen(dm_req) as resp:
+        dm_channel_id = json.loads(resp.read())["id"]
+
     payload = json.dumps({"content": message}).encode()
     req = urllib.request.Request(
-        f"https://discord.com/api/v10/channels/{DISCORD_ALERT_CHANNEL_ID}/messages",
+        f"https://discord.com/api/v10/channels/{dm_channel_id}/messages",
         data=payload, method="POST",
         headers={
             "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
