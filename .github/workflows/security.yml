@@ -11,10 +11,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Controllo sicurezza (token, chiavi esposte, landing)
+      - name: Controllo sicurezza (token, chiavi esposte, landing, permessi bot, SPF/DKIM/DMARC)
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           DISCORD_USER_ID_WILLIAM: ${{ secrets.DISCORD_USER_ID_WILLIAM }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
         run: python check_security.py
