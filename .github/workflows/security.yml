@@ -2,6 +2,8 @@ name: Security Check (una volta al giorno)
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 11 * * *"
 
 jobs:
   check:
