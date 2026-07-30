@@ -1,0 +1,33 @@
+name: Benvenuto nuovi membri Discord (ogni ora)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Controlla nuovi membri e da' il benvenuto
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_CHANNEL_ID_BENVENUTO: ${{ secrets.DISCORD_CHANNEL_ID_BENVENUTO }}
+        run: python check_new_members.py
+
+      - name: Salva lo stato (membri gia' accolti)
+        run: |
+          git config user.name "welcome-bot"
+          git config user.email "actions@github.com"
+          git pull --no-edit || true
+          git add seen_members.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato membri accolti"
+          git push || true
