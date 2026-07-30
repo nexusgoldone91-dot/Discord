@@ -20,6 +20,18 @@ DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 BREVO_API_KEY = os.environ["BREVO_API_KEY"]
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
 DISCORD_USER_ID_WILLIAM = os.environ["DISCORD_USER_ID_WILLIAM"]
+DISCORD_GUILD_ID = os.environ["DISCORD_GUILD_ID"]
+
+# Permessi pericolosi che il bot NON dovrebbe mai avere (bit flag Discord)
+DANGEROUS_PERMISSION_BITS = {
+    "Amministratore": 0x8,
+    "Bannare membri": 0x4,
+    "Espellere membri": 0x2,
+    "Gestire il server": 0x20,
+    "Gestire i ruoli": 0x10000000,
+    "Gestire i webhook": 0x20000000,
+    "Silenziare/isolare membri": 0x10000000000,
+}
 
 USER_AGENT = "NexusGoldOne-SecurityAgent/1.0 (https://nexusgoldone.com)"
 LANDING_DOMAIN = "nexusgoldone.com"
@@ -144,6 +156,80 @@ def check_ssl_certificate_expiry(days_warning=21):
         return [f"Impossibile verificare la scadenza del certificato SSL ({e})."]
 
 
+def check_discord_bot_permissions():
+    """Controlla che il bot non abbia permessi pericolosi (Amministratore, bannare, ecc.)."""
+    try:
+        req_me = urllib.request.Request("https://discord.com/api/v10/users/@me",
+            headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req_me) as resp:
+            bot_id = json.loads(resp.read())["id"]
+
+        req_member = urllib.request.Request(f"https://discord.com/api/v10/guilds/{DISCORD_GUILD_ID}/members/{bot_id}",
+            headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req_member) as resp:
+            member = json.loads(resp.read())
+        role_ids = set(member.get("roles", []))
+
+        req_roles = urllib.request.Request(f"https://discord.com/api/v10/guilds/{DISCORD_GUILD_ID}/roles",
+            headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req_roles) as resp:
+            roles = json.loads(resp.read())
+
+        combined_permissions = 0
+        for role in roles:
+            if role["id"] in role_ids or role["id"] == DISCORD_GUILD_ID:  # @everyone id == guild id
+                combined_permissions |= int(role["permissions"])
+
+        problems = []
+        for name, bit in DANGEROUS_PERMISSION_BITS.items():
+            if combined_permissions & bit:
+                problems.append(f"Il bot ha ancora il permesso pericoloso \"{name}\" — da togliere.")
+        return problems
+    except Exception as e:
+        return [f"Impossibile verificare i permessi del bot Discord ({e})."]
+
+
+def dns_over_https(name, record_type):
+    """Query DNS via Google DoH, nessuna dipendenza esterna necessaria."""
+    url = f"https://dns.google/resolve?name={name}&type={record_type}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    answers = data.get("Answer", [])
+    return [a["data"] for a in answers]
+
+
+def check_domain_email_auth():
+    """Controlla SPF, DKIM e DMARC su nexusgoldone.com, per accorgersi se qualcosa si rompe nel tempo."""
+    problems = []
+    try:
+        spf_records = dns_over_https(LANDING_DOMAIN, "TXT")
+        spf = [r for r in spf_records if "v=spf1" in r]
+        if not spf:
+            problems.append("Record SPF non trovato su nexusgoldone.com (dovrebbe esserci).")
+        elif "spf.brevo.com" not in spf[0]:
+            problems.append("Record SPF presente ma non include più Brevo (spf.brevo.com) — controllare se qualcuno l'ha modificato.")
+    except Exception as e:
+        problems.append(f"Impossibile verificare l'SPF ({e}).")
+
+    try:
+        dmarc_records = dns_over_https(f"_dmarc.{LANDING_DOMAIN}", "TXT")
+        if not any("v=DMARC1" in r for r in dmarc_records):
+            problems.append("Record DMARC non trovato o non valido su _dmarc.nexusgoldone.com.")
+    except Exception as e:
+        problems.append(f"Impossibile verificare il DMARC ({e}).")
+
+    for host in ["brevo1._domainkey", "brevo2._domainkey"]:
+        try:
+            cname_records = dns_over_https(f"{host}.{LANDING_DOMAIN}", "CNAME")
+            if not cname_records:
+                problems.append(f"Record DKIM mancante: {host}.{LANDING_DOMAIN}.")
+        except Exception as e:
+            problems.append(f"Impossibile verificare il DKIM {host} ({e}).")
+
+    return problems
+
+
 def post_discord_alert(message):
     """Manda l'alert in DM privato a William, mai in un canale del server."""
     dm_payload = json.dumps({"recipient_id": DISCORD_USER_ID_WILLIAM}).encode()
@@ -190,6 +276,8 @@ def main():
     problems.extend(check_landing_security_headers())
     problems.extend(check_landing_sensitive_paths())
     problems.extend(check_ssl_certificate_expiry())
+    problems.extend(check_discord_bot_permissions())
+    problems.extend(check_domain_email_auth())
 
     if problems:
         message = "🔐 **Security Agent — problema trovato**\n\n" + "\n\n".join(problems)
