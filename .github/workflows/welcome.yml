@@ -2,6 +2,8 @@ name: Benvenuto nuovi membri Discord (ogni ora)
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 * * * *"
 
 permissions:
   contents: write
