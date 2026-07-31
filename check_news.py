@@ -199,8 +199,27 @@ def fetch_news_feed(url):
         description = clean_text(item.findtext("description", ""))
         link = item.findtext("link", "")
         guid = item.findtext("guid", link)
-        items.append({"title": title, "description": description, "guid": guid})
+        pub_date_raw = item.findtext("pubDate", "")
+        items.append({"title": title, "description": description, "guid": guid, "pub_date_raw": pub_date_raw})
     return items
+
+
+def is_stale_article(pub_date_raw, max_age_hours=48):
+    """Scarta articoli vecchi anche se il GUID risulta 'nuovo' al nostro stato
+    (bug reale trovato il 31/7/2026: un articolo vecchio su Bitcoin/tariffe Trump
+    con GUID mai visto prima e' stato postato come notizia di oggi con un prezzo
+    Bitcoin datato/falso, $94.000 invece del prezzo reale ~$64.000)."""
+    if not pub_date_raw:
+        return False  # nessuna data disponibile: non scartiamo per non perdere notizie valide
+    try:
+        from email.utils import parsedate_to_datetime
+        pub_dt = parsedate_to_datetime(pub_date_raw)
+        if pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=ZoneInfo("UTC"))
+        age = datetime.now(pub_dt.tzinfo) - pub_dt
+        return age > timedelta(hours=max_age_hours)
+    except Exception:
+        return False
 
 
 def translate_to_italian(text):
@@ -257,6 +276,8 @@ def check_news():
             if item["guid"] in seen:
                 continue
             seen.add(item["guid"])
+            if is_stale_article(item.get("pub_date_raw", "")):
+                continue  # articolo vecchio ripescato dal feed, non e' notizia di oggi
             if matches_keywords(item["title"]):
                 new_relevant.append(item)
 
