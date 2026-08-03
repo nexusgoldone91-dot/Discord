@@ -236,12 +236,15 @@ def check_newsletter_signup(issues):
             f"(risposta: {data}) - chi si iscrive dal sito non risulta su Brevo, controllare "
             f"la variabile BREVO_API_KEY su Netlify"
         )
-\n\ndef main():
+
+
+def main():
     issues = []
     check_landing(issues)
     check_discord(issues)
     check_brevo(issues)
     check_cronjobs(issues)
+    check_newsletter_signup(issues)
 
     result = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
