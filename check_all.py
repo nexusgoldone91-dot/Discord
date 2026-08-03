@@ -207,7 +207,36 @@ def check_cronjobs(issues):
                 issues.append(f"[cron-job.org] Job '{j.get('title')}' non gira da oltre 3 giorni")
 
 
-def main():
+
+
+# ---------- 5. NEWSLETTER SIGNUP (form Brevo sulla landing) ----------
+
+def check_newsletter_signup(issues):
+    """Test end-to-end vero: manda un'email di test alla function live di iscrizione
+    e legge il campo diagnostico brevoOk per sapere se e' arrivata davvero su Brevo,
+    senza doversi fidare della risposta sempre-200 mostrata al visitatore reale."""
+    test_email = f"control-check-{int(time.time())}@nexusgoldone-monitor.test"
+    payload = json.dumps({"email": test_email}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://nexusgoldone.com/.netlify/functions/subscribe",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.load(resp)
+    except Exception as e:
+        issues.append(f"[Newsletter signup] Impossibile testare il modulo di iscrizione: {e}")
+        return
+
+    if not data.get("brevoOk", False):
+        issues.append(
+            f"[Newsletter signup] Il modulo di iscrizione sulla landing NON arriva a Brevo "
+            f"(risposta: {data}) - chi si iscrive dal sito non risulta su Brevo, controllare "
+            f"la variabile BREVO_API_KEY su Netlify"
+        )
+\n\ndef main():
     issues = []
     check_landing(issues)
     check_discord(issues)
