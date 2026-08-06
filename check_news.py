@@ -538,7 +538,7 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
-EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+?)\s*-\s*(?:Edizione\s*#?)?(\d+)\s*$", re.IGNORECASE)  # fix 6/8/2026: accetta sia "- Edizione #NN" sia "- NN" (formato cambiato da campagna 104 in poi)
 
 
 def get_gdrive_access_token():
@@ -623,16 +623,14 @@ def generate_pdf_from_html(html_content):
 
 
 def genera_e_carica_pdf(campaign_id, campaign_name):
-    """Genera il PDF di una campagna Brevo e lo carica nella cartella Drive giusta,
-    capendo dal nome campagna se e' un'edizione numerata o la serie ad-hoc XAUUSD."""
+    """Genera il PDF di OGNI campagna Brevo inviata e lo carica su Drive - mai
+    saltato per nome non riconosciuto (fix 6/8/2026, richiesta esplicita di
+    William: "quando esce una email la mette nel drive e basta"). Due cartelle:
+    'Aggiornamento XAUUSD ...' -> cartella analisi (per data); tutto il resto ->
+    cartella edizioni numerate, prendendo il numero da '- NN' o '- Edizione #NN'
+    se presente, altrimenti usa il nome campagna cosi' com'e' (nessun crash/skip)."""
     if not (GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET and GDRIVE_REFRESH_TOKEN):
         print("Credenziali Google Drive mancanti, salto la generazione PDF.")
-        return
-
-    m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
-    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
-    if not m_xau and not m_ed:
-        print(f"Nome campagna '{campaign_name}' non riconosciuto (ne' 'Aggiornamento XAUUSD ...' ne' '... - Edizione #NN'), salto il PDF.")
         return
 
     req = urllib.request.Request(
@@ -645,16 +643,25 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
 
     access_token = get_gdrive_access_token()
 
+    m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
+    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
+
     if m_xau:
         data_str = m_xau.group(1)
         folder_id = GDRIVE_FOLDER_XAUUSD
         esistenti = gdrive_list_files(access_token, folder_id)
         numero = len(esistenti) + 1
         filename = f"{numero}. Analisi del {data_str}.pdf"
-    else:
-        titolo, numero_str = m_ed.group(1), m_ed.group(2)
+    elif m_ed:
+        titolo, numero_str = m_ed.group(1).strip(), m_ed.group(2)
         folder_id = GDRIVE_FOLDER_NEWSLETTER
         filename = f"{int(numero_str)}. {titolo}.pdf"
+    else:
+        # nessun numero nel nome (es. "Chiusura Copytrading - Annuncio"): carica
+        # comunque, usa il nome campagna cosi' com'e' invece di saltare
+        folder_id = GDRIVE_FOLDER_NEWSLETTER
+        filename = f"{campaign_name}.pdf"
+        print(f"Nome campagna '{campaign_name}' senza numero riconoscibile, carico comunque col nome originale.")
 
     pdf_bytes = generate_pdf_from_html(html_content)
     result = gdrive_upload_pdf(access_token, pdf_bytes, filename, folder_id)
