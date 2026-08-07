@@ -46,7 +46,7 @@ GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
 # cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
 GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
 GDRIVE_FOLDER_XAUUSD = "1Mhw_RdsAB7ka-IwtWbWP8mPVOh0r9Okv"  # "Analisi XAUUSD", serie ad-hoc
-GDRIVE_FOLDER_PSICOLOGIA = "1Nzu56V9UYEUq3JxOFIFq87CKi53QIgFG"  # "Psicologia del Trading", serie bonus giovedi' (7 pattern, creata 7/8/2026)
+GDRIVE_FOLDER_PSICOLOGIA = "1Nzu56V9UYEUq3JxOFIFq87CKi53QIgFG"  # "I Pattern della Psicologia nel Trading", serie bonus giovedi' (7 pattern, creata e rinominata 7/8/2026)
 
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
