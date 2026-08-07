@@ -46,6 +46,7 @@ GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
 # cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
 GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
 GDRIVE_FOLDER_XAUUSD = "1Mhw_RdsAB7ka-IwtWbWP8mPVOh0r9Okv"  # "Analisi XAUUSD", serie ad-hoc
+GDRIVE_FOLDER_PSICOLOGIA = "1Nzu56V9UYEUq3JxOFIFq87CKi53QIgFG"  # "Psicologia del Trading", serie bonus giovedi' (7 pattern, creata 7/8/2026)
 
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
@@ -538,6 +539,7 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
+BONUS_CAMPAIGN_RE = re.compile(r"^Bonus (\d+)\s*-\s*(.+)$", re.IGNORECASE)  # serie bonus giovedi' 7 pattern psicologici, aggiunta 7/8/2026
 EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+?)\s*-\s*(?:Edizione\s*#?)?(\d+)\s*$", re.IGNORECASE)  # fix 6/8/2026: accetta sia "- Edizione #NN" sia "- NN" (formato cambiato da campagna 104 in poi)
 
 
@@ -644,6 +646,7 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
     access_token = get_gdrive_access_token()
 
     m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
+    m_bonus = BONUS_CAMPAIGN_RE.match(campaign_name)
     m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
 
     if m_xau:
@@ -652,6 +655,10 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
         esistenti = gdrive_list_files(access_token, folder_id)
         numero = len(esistenti) + 1
         filename = f"{numero}. Analisi del {data_str}.pdf"
+    elif m_bonus:
+        numero_str, titolo = m_bonus.group(1), m_bonus.group(2).strip()
+        folder_id = GDRIVE_FOLDER_PSICOLOGIA
+        filename = f"Bonus {int(numero_str)}. {titolo}.pdf"
     elif m_ed:
         titolo, numero_str = m_ed.group(1).strip(), m_ed.group(2)
         folder_id = GDRIVE_FOLDER_NEWSLETTER
