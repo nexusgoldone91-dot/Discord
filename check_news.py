@@ -271,12 +271,7 @@ def check_news():
         # (es. "...  and here's what happened"): la traduzione lo porta dietro
         # cosi' com'e', e la regola del progetto lo vieta sempre, ovunque
         title_it = title_it.replace(" — ", ": ").replace(" – ", ": ").replace("—", "-").replace("–", "-")
-        line = f"• {title_it}"
-        if it.get("link"):
-            # molti titoli sono teaser ("ecco cosa e' successo") che non spiegano
-            # nulla da soli: il link permette di leggere la notizia vera
-            line += f"\n{it['link']}"
-        lines.append(line)
+        lines.append(f"• {title_it}")
     return lines
 
 
