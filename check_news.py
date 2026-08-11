@@ -46,7 +46,6 @@ GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
 # cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
 GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
 GDRIVE_FOLDER_XAUUSD = "1Mhw_RdsAB7ka-IwtWbWP8mPVOh0r9Okv"  # "Analisi XAUUSD", serie ad-hoc
-GDRIVE_FOLDER_PSICOLOGIA = "1Nzu56V9UYEUq3JxOFIFq87CKi53QIgFG"  # "I Pattern della Psicologia nel Trading", serie bonus giovedi' (7 pattern, creata e rinominata 7/8/2026)
 
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
@@ -200,27 +199,8 @@ def fetch_news_feed(url):
         description = clean_text(item.findtext("description", ""))
         link = item.findtext("link", "")
         guid = item.findtext("guid", link)
-        pub_date_raw = item.findtext("pubDate", "")
-        items.append({"title": title, "description": description, "guid": guid, "pub_date_raw": pub_date_raw})
+        items.append({"title": title, "description": description, "guid": guid, "link": link})
     return items
-
-
-def is_stale_article(pub_date_raw, max_age_hours=48):
-    """Scarta articoli vecchi anche se il GUID risulta 'nuovo' al nostro stato
-    (bug reale trovato il 31/7/2026: un articolo vecchio su Bitcoin/tariffe Trump
-    con GUID mai visto prima e' stato postato come notizia di oggi con un prezzo
-    Bitcoin datato/falso, $94.000 invece del prezzo reale ~$64.000)."""
-    if not pub_date_raw:
-        return False  # nessuna data disponibile: non scartiamo per non perdere notizie valide
-    try:
-        from email.utils import parsedate_to_datetime
-        pub_dt = parsedate_to_datetime(pub_date_raw)
-        if pub_dt.tzinfo is None:
-            pub_dt = pub_dt.replace(tzinfo=ZoneInfo("UTC"))
-        age = datetime.now(pub_dt.tzinfo) - pub_dt
-        return age > timedelta(hours=max_age_hours)
-    except Exception:
-        return False
 
 
 def translate_to_italian(text):
@@ -277,8 +257,6 @@ def check_news():
             if item["guid"] in seen:
                 continue
             seen.add(item["guid"])
-            if is_stale_article(item.get("pub_date_raw", "")):
-                continue  # articolo vecchio ripescato dal feed, non e' notizia di oggi
             if matches_keywords(item["title"]):
                 new_relevant.append(item)
 
@@ -289,7 +267,16 @@ def check_news():
         # solo il titolo tradotto: i titoli vanno dritti al punto, le descrizioni
         # di alcune fonti sono lunghe/disordinate e non c'e' AI per riassumerle bene
         title_it = translate_to_italian(it["title"])
-        lines.append(f"• {title_it}")
+        # le fonti inglesi usano spesso il trattino lungo/medio nei titoli
+        # (es. "...  and here's what happened"): la traduzione lo porta dietro
+        # cosi' com'e', e la regola del progetto lo vieta sempre, ovunque
+        title_it = title_it.replace(" — ", ": ").replace(" – ", ": ").replace("—", "-").replace("–", "-")
+        line = f"• {title_it}"
+        if it.get("link"):
+            # molti titoli sono teaser ("ecco cosa e' successo") che non spiegano
+            # nulla da soli: il link permette di leggere la notizia vera
+            line += f"\n{it['link']}"
+        lines.append(line)
     return lines
 
 
@@ -539,8 +526,7 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
-BONUS_CAMPAIGN_RE = re.compile(r"^Bonus (\d+)\s*-\s*(.+)$", re.IGNORECASE)  # serie bonus giovedi' 7 pattern psicologici, aggiunta 7/8/2026
-EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+?)\s*-\s*(?:Edizione\s*#?)?(\d+)\s*$", re.IGNORECASE)  # fix 6/8/2026: accetta sia "- Edizione #NN" sia "- NN" (formato cambiato da campagna 104 in poi)
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
 
 
 def get_gdrive_access_token():
@@ -625,14 +611,16 @@ def generate_pdf_from_html(html_content):
 
 
 def genera_e_carica_pdf(campaign_id, campaign_name):
-    """Genera il PDF di OGNI campagna Brevo inviata e lo carica su Drive - mai
-    saltato per nome non riconosciuto (fix 6/8/2026, richiesta esplicita di
-    William: "quando esce una email la mette nel drive e basta"). Due cartelle:
-    'Aggiornamento XAUUSD ...' -> cartella analisi (per data); tutto il resto ->
-    cartella edizioni numerate, prendendo il numero da '- NN' o '- Edizione #NN'
-    se presente, altrimenti usa il nome campagna cosi' com'e' (nessun crash/skip)."""
+    """Genera il PDF di una campagna Brevo e lo carica nella cartella Drive giusta,
+    capendo dal nome campagna se e' un'edizione numerata o la serie ad-hoc XAUUSD."""
     if not (GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET and GDRIVE_REFRESH_TOKEN):
         print("Credenziali Google Drive mancanti, salto la generazione PDF.")
+        return
+
+    m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
+    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
+    if not m_xau and not m_ed:
+        print(f"Nome campagna '{campaign_name}' non riconosciuto (ne' 'Aggiornamento XAUUSD ...' ne' '... - Edizione #NN'), salto il PDF.")
         return
 
     req = urllib.request.Request(
@@ -645,30 +633,16 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
 
     access_token = get_gdrive_access_token()
 
-    m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
-    m_bonus = BONUS_CAMPAIGN_RE.match(campaign_name)
-    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
-
     if m_xau:
         data_str = m_xau.group(1)
         folder_id = GDRIVE_FOLDER_XAUUSD
         esistenti = gdrive_list_files(access_token, folder_id)
         numero = len(esistenti) + 1
         filename = f"{numero}. Analisi del {data_str}.pdf"
-    elif m_bonus:
-        numero_str, titolo = m_bonus.group(1), m_bonus.group(2).strip()
-        folder_id = GDRIVE_FOLDER_PSICOLOGIA
-        filename = f"Bonus {int(numero_str)}. {titolo}.pdf"
-    elif m_ed:
-        titolo, numero_str = m_ed.group(1).strip(), m_ed.group(2)
+    else:
+        titolo, numero_str = m_ed.group(1), m_ed.group(2)
         folder_id = GDRIVE_FOLDER_NEWSLETTER
         filename = f"{int(numero_str)}. {titolo}.pdf"
-    else:
-        # nessun numero nel nome (es. "Chiusura Copytrading - Annuncio"): carica
-        # comunque, usa il nome campagna cosi' com'e' invece di saltare
-        folder_id = GDRIVE_FOLDER_NEWSLETTER
-        filename = f"{campaign_name}.pdf"
-        print(f"Nome campagna '{campaign_name}' senza numero riconoscibile, carico comunque col nome originale.")
 
     pdf_bytes = generate_pdf_from_html(html_content)
     result = gdrive_upload_pdf(access_token, pdf_bytes, filename, folder_id)
