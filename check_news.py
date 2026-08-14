@@ -521,7 +521,7 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
-EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - (?:Edizione #)?(\d+)$")
 
 
 def get_gdrive_access_token():
