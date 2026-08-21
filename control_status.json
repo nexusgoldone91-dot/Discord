@@ -1,5 +1,8 @@
 {
-  "checked_at": "2026-08-21T08:15:33Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-08-21T11:15:32Z",
+  "ok": false,
+  "issues": [
+    "[Discord] Canale #info-contatti non raggiungibile: HTTP Error 503: Service Unavailable",
+    "[Discord] Canale #info-dal-mondo non raggiungibile: HTTP Error 503: Service Unavailable"
+  ]
 }
