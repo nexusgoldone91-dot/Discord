@@ -67,20 +67,34 @@ MESI_IT = [
 
 # Parole "forti": da sole bastano per segnalare la notizia (chiaramente legate a oro/geopolitica/Fed)
 STRONG_KEYWORDS = [
-    "xau", "gold", "oro", "iran", "houthi", "hormuz", "ceasefire", "cessate il fuoco",
+    "xau", "gold", "oro", "silver", "argento", "platinum", "platino", "palladium", "palladio",
+    "iran", "houthi", "hormuz", "ceasefire", "cessate il fuoco",
     "fomc", "rate hike", "rate cut", "cpi", "ppi", "nfp", "nonfarm payroll",
     "truth social", "missile", "airstrike", "air strike",
+    "recession", "recessione", "jobs report", "unemployment", "disoccupazione",
+    "treasury yield", "bond yield", "gdp",
+    "bank collapse", "bank run", "banking crisis", "bank failure",
+    "crollo banca", "fallimento banca", "crisi bancaria",
+    "gold reserves", "riserve auree", "gold mine", "miniera d'oro", "new gold deposit",
+    "de-dollarization", "de-dollarizzazione", "brics",
 ]
 
 # Parole "deboli": generiche, contano solo se compaiono insieme ad almeno un'altra
 # (forte o debole) nello stesso titolo - evita falsi positivi tipo "Dow ai massimi
 # grazie a Trump" o notizie su Bitcoin/lira turca che citano solo "dollar" di striscio
+# (allargate il 25/8/2026 su richiesta di William: piu' notizie macro/mercati, banche,
+# metalli preziosi in generale, mosse grosse di soldi, non solo oro/Fed strette)
 WEAK_KEYWORDS = [
     "trump", "tariff", "tariffs", "dazi", "dazio",
     "fed", "federal reserve", "interest rate", "inflation", "inflazione",
-    "israel", "strike", "attack", "war",
+    "israel", "strike", "attack", "war", "conflict", "geopolitical", "geopolitica",
     "dollar", "dollaro", "dxy",
-    "central bank", "banca centrale", "opec", "oil", "petrolio",
+    "central bank", "banca centrale", "opec", "oil", "petrolio", "crude",
+    "sanction", "sanzioni", "stocks", "s&p", "nasdaq", "dow jones",
+    "ecb", "bce", "boe", "boj",
+    "mine", "miniera", "deposit", "giacimento", "reserves", "riserve", "stockpile", "scorte",
+    "billionaire", "miliardario", "hedge fund", "insider buying", "insider",
+    "bankrupt", "bankruptcy", "collapse", "crollo",
 ]
 
 # Se il titolo parla SOLO di vittime/morti senza un aggancio chiaro a qualcosa
@@ -220,7 +234,17 @@ def translate_to_italian(text):
         return text
 
 
+def is_question_title(title):
+    # Titoli-domanda (es. "Will Warsh stop the dollar sell-off?") vengono scartati
+    # sempre: il bot manda solo il titolo tradotto, mai il link/corpo dell'articolo,
+    # quindi una domanda senza risposta arriva "monca" - William l'ha notato il
+    # 25/8/2026 e ha chiesto di toglierle del tutto, senza eccezioni.
+    return "?" in title
+
+
 def matches_keywords(title):
+    if is_question_title(title):
+        return False
     if is_pure_casualty_news(title):
         return False
     if is_retrospective_news(title):
@@ -521,7 +545,7 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
-EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - (?:Edizione #)?(\d+)$")
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
 
 
 def get_gdrive_access_token():
