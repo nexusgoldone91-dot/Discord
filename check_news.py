@@ -220,18 +220,23 @@ def fetch_news_feed(url):
 def translate_to_italian(text):
     if not text:
         return text
-    try:
-        params = urllib.parse.urlencode({
-            "client": "gtx", "sl": "en", "tl": "it", "dt": "t", "q": text
-        })
-        url = f"https://translate.googleapis.com/translate_a/single?{params}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        return "".join(seg[0] for seg in data[0])
-    except Exception as e:
-        print(f"Errore traduzione: {e}")
-        return text
+    params = urllib.parse.urlencode({
+        "client": "gtx", "sl": "en", "tl": "it", "dt": "t", "q": text
+    })
+    url = f"https://translate.googleapis.com/translate_a/single?{params}"
+    last_error = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            return "".join(seg[0] for seg in data[0])
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(2)
+    print(f"Errore traduzione dopo 3 tentativi, mando il titolo originale: {last_error}")
+    return text
 
 
 def is_question_title(title):
