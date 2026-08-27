@@ -1,9 +1,0 @@
-{
-  "checked_at": "2026-07-27T19:41:38Z",
-  "ok": true,
-  "issues": [],
-  "response_time_s": 0.5,
-  "pagespeed_mobile": {
-    "errore": "HTTP Error 429: Too Many Requests"
-  }
-}
