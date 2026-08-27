@@ -238,13 +238,46 @@ def check_newsletter_signup(issues):
         )
 
 
+# ---------- 6. AVVISO JONNY (Telegram) - solo per i problemi della landing per ora ----------
+
+def send_jonny_alert(issues):
+    """Manda un avviso immediato su Telegram (bot Jonny, chat privata 1:1 con William)
+    quando il controllo landing trova un problema. Deciso il 27/8/2026: si parte solo
+    dalla landing, gli altri controlli (Discord/Brevo/cron-job.org) restano per ora solo
+    in control_status.json, letto a inizio sessione - si aggiungeranno a Jonny uno alla
+    volta man mano che si rivedono gli altri reparti."""
+    token = os.environ.get("JONNY_BOT_TOKEN")
+    chat_id = os.environ.get("JONNY_CHAT_ID")
+    if not token or not chat_id:
+        return
+    testo = "Jonny qui. Il controllo della landing page ha trovato un problema:\n\n" + "\n".join(f"- {i}" for i in issues)
+    payload = json.dumps({"chat_id": chat_id, "text": testo}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=15)
+    except Exception:
+        pass  # non deve mai far fallire il resto del controllo
+
+
 def main():
-    issues = []
-    check_landing(issues)
-    check_discord(issues)
-    check_brevo(issues)
-    check_cronjobs(issues)
-    check_newsletter_signup(issues)
+    landing_issues = []
+    check_landing(landing_issues)
+    check_newsletter_signup(landing_issues)
+
+    altri_issues = []
+    check_discord(altri_issues)
+    check_brevo(altri_issues)
+    check_cronjobs(altri_issues)
+
+    if landing_issues:
+        send_jonny_alert(landing_issues)
+
+    issues = landing_issues + altri_issues
 
     result = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
