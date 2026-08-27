@@ -18,6 +18,7 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
-          DISCORD_USER_ID_WILLIAM: ${{ secrets.DISCORD_USER_ID_WILLIAM }}
+          JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
+          JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
         run: python check_security.py
