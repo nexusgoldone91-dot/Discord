@@ -20,6 +20,12 @@ il contenuto e' comparso davvero:
 Se lo trova, segna l'evento come controllato, silenzio. Se non lo trova,
 avvisa Jonny su Telegram UNA volta sola per quell'evento (mai piu' di un
 avviso per lo stesso evento), poi lo segna comunque come controllato.
+
+QUALSIASI ALTRO evento (chiamate segnate col nome della persona, cose da
+fare, senza il prefisso "Email:"/"IG:") riceve invece un promemoria 30
+minuti PRIMA dell'orario di inizio, col titolo dell'evento relayato cosi'
+com'e' (deciso il 27/8/2026, William: "se e' da fare leggo cosa fare, e se
+e' una persona leggo il nome").
 """
 
 import json
@@ -85,10 +91,10 @@ def get_gcal_access_token():
         return json.load(resp)["access_token"]
 
 
-def get_recent_events(access_token, hours_back=3):
+def get_recent_events(access_token, hours_back=3, hours_forward=1):
     now = datetime.now(timezone.utc)
     time_min = (now - timedelta(hours=hours_back)).isoformat().replace("+00:00", "Z")
-    time_max = now.isoformat().replace("+00:00", "Z")
+    time_max = (now + timedelta(hours=hours_forward)).isoformat().replace("+00:00", "Z")
     cal_id = urllib.parse.quote(GCAL_CALENDAR_ID, safe="")
     url = (
         f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events"
@@ -172,34 +178,43 @@ def main():
         except Exception:
             continue
 
-        minuti_passati = (now - event_start).total_seconds() / 60
-        if minuti_passati < 10:
-            continue  # non ancora il momento di controllare
+        if title.startswith("Email:") or title.startswith("IG:"):
+            minuti_passati = (now - event_start).total_seconds() / 60
+            if minuti_passati < 10:
+                continue  # non ancora il momento di controllare
 
-        if title.startswith("Email:"):
-            esito = check_email_published(event_start)
-            tipo = "email"
-        elif title.startswith("IG:"):
-            esito = check_instagram_published(event_start)
-            tipo = "contenuto Instagram"
+            if title.startswith("Email:"):
+                esito = check_email_published(event_start)
+                tipo = "email"
+            else:
+                esito = check_instagram_published(event_start)
+                tipo = "contenuto Instagram"
+
+            if esito is None:
+                print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
+                continue  # non segnato come controllato, ritenta al giro dopo
+
+            novita = True
+            if esito:
+                print(f"Evento '{title}': pubblicato correttamente.")
+            else:
+                print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
+                send_jonny_alert(
+                    f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
+                    f"({tipo}, previsto per le {event_start.astimezone().strftime('%H:%M')})."
+                )
+            checked.add(event_id)
+
         else:
-            continue
-
-        if esito is None:
-            print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
-            continue  # non segnato come controllato, ritenta al giro dopo
-
-        novita = True
-        if esito:
-            print(f"Evento '{title}': pubblicato correttamente.")
-        else:
-            print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
-            send_jonny_alert(
-                f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
-                f"({tipo}, previsto per le {event_start.astimezone().strftime('%H:%M')})."
-            )
-
-        checked.add(event_id)
+            # Promemoria generico (chiamate con nome persona, cose da fare):
+            # avviso 30 minuti PRIMA dell'orario del calendario, titolo relayato cosi' com'e'.
+            minuti_a_evento = (event_start - now).total_seconds() / 60
+            if 25 <= minuti_a_evento <= 35:
+                novita = True
+                print(f"Promemoria per '{title}' (tra mezz'ora).")
+                send_jonny_alert(f"Jonny qui. Ti ricordo: {title}, tra mezz'ora.")
+                checked.add(event_id)
+            # fuori dalla finestra dei 30 minuti: lasciato non segnato, si ricontrolla al giro dopo
 
     if not novita:
         print("Nessun evento nuovo da controllare in questo giro.")
