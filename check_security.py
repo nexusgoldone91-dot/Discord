@@ -4,7 +4,9 @@ Security Agent - controllo giornaliero indipendente (GitHub Actions).
 Verifica che i token/chiavi principali funzionino ancora, e scansiona
 il repository stesso per pattern di chiavi esposte per sbaglio.
 Non stampa mai un valore di chiave/token, solo esiti booleani.
-Posta su Discord SOLO se trova un problema (silenzioso se tutto ok).
+Avvisa Jonny su Telegram SOLO se trova un problema (silenzioso se tutto ok).
+Spostato da DM Discord a Jonny il 27/8/2026, per avere un unico canale di
+avviso invece di due separati.
 """
 
 import json
@@ -19,8 +21,9 @@ from datetime import datetime, timezone
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 BREVO_API_KEY = os.environ["BREVO_API_KEY"]
 NOTION_API_KEY = os.environ["NOTION_API_KEY"]
-DISCORD_USER_ID_WILLIAM = os.environ["DISCORD_USER_ID_WILLIAM"]
 DISCORD_GUILD_ID = os.environ["DISCORD_GUILD_ID"]
+JONNY_BOT_TOKEN = os.environ.get("JONNY_BOT_TOKEN")
+JONNY_CHAT_ID = os.environ.get("JONNY_CHAT_ID")
 
 # Permessi pericolosi che il bot NON dovrebbe mai avere (bit flag Discord)
 DANGEROUS_PERMISSION_BITS = {
@@ -230,30 +233,16 @@ def check_domain_email_auth():
     return problems
 
 
-def post_discord_alert(message):
-    """Manda l'alert in DM privato a William, mai in un canale del server."""
-    dm_payload = json.dumps({"recipient_id": DISCORD_USER_ID_WILLIAM}).encode()
-    dm_req = urllib.request.Request(
-        "https://discord.com/api/v10/users/@me/channels",
-        data=dm_payload, method="POST",
-        headers={
-            "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
-    with urllib.request.urlopen(dm_req) as resp:
-        dm_channel_id = json.loads(resp.read())["id"]
-
-    payload = json.dumps({"content": message}).encode()
+def send_jonny_alert(message):
+    """Manda l'alert su Telegram (bot Jonny, chat privata 1:1 con William)."""
+    if not JONNY_BOT_TOKEN or not JONNY_CHAT_ID:
+        return
+    payload = json.dumps({"chat_id": JONNY_CHAT_ID, "text": message}).encode("utf-8")
     req = urllib.request.Request(
-        f"https://discord.com/api/v10/channels/{dm_channel_id}/messages",
-        data=payload, method="POST",
-        headers={
-            "Authorization": f"Bot {DISCORD_BOT_TOKEN}",
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
+        f"https://api.telegram.org/bot{JONNY_BOT_TOKEN}/sendMessage",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     with urllib.request.urlopen(req) as resp:
         return resp.status
@@ -280,8 +269,8 @@ def main():
     problems.extend(check_domain_email_auth())
 
     if problems:
-        message = "🔐 **Security Agent — problema trovato**\n\n" + "\n\n".join(problems)
-        post_discord_alert(message)
+        message = "Jonny qui. Il Security Agent ha trovato un problema:\n\n" + "\n\n".join(problems)
+        send_jonny_alert(message)
         print("PROBLEMI TROVATI:\n" + message)
     else:
         print("Tutto ok: nessun problema di sicurezza trovato.")
