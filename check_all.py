@@ -238,19 +238,18 @@ def check_newsletter_signup(issues):
         )
 
 
-# ---------- 6. AVVISO JONNY (Telegram) - solo per i problemi della landing per ora ----------
+# ---------- 6. AVVISO JONNY (Telegram) - reparto per reparto, aggiunti uno alla volta ----------
 
-def send_jonny_alert(issues):
-    """Manda un avviso immediato su Telegram (bot Jonny, chat privata 1:1 con William)
-    quando il controllo landing trova un problema. Deciso il 27/8/2026: si parte solo
-    dalla landing, gli altri controlli (Discord/Brevo/cron-job.org) restano per ora solo
-    in control_status.json, letto a inizio sessione - si aggiungeranno a Jonny uno alla
+def send_jonny_alert(testo):
+    """Manda un avviso immediato su Telegram (bot Jonny, chat privata 1:1 con William).
+    Deciso il 27/8/2026: si parte dalla landing e dal job Newsletter Strategist, gli
+    altri controlli (Discord/Brevo/cron-job.org) restano per ora solo in
+    control_status.json, letto a inizio sessione - si aggiungeranno a Jonny uno alla
     volta man mano che si rivedono gli altri reparti."""
     token = os.environ.get("JONNY_BOT_TOKEN")
     chat_id = os.environ.get("JONNY_CHAT_ID")
     if not token or not chat_id:
         return
-    testo = "Jonny qui. Il controllo della landing page ha trovato un problema:\n\n" + "\n".join(f"- {i}" for i in issues)
     payload = json.dumps({"chat_id": chat_id, "text": testo}).encode("utf-8")
     try:
         req = urllib.request.Request(
@@ -264,20 +263,61 @@ def send_jonny_alert(issues):
         pass  # non deve mai far fallire il resto del controllo
 
 
+# ---------- 7. JOB NEWSLETTER STRATEGIST (Cron legato alla sessione, scade dopo 7gg) ----------
+
+CRON_STATUS_FILE = "newsletter_strategist_cron_status.json"
+NEWSLETTER_STRATEGIST_ALERT_FILE = "newsletter_strategist_cron_alerted.json"
+
+
+def check_newsletter_strategist_cron(issues):
+    """Il job che fa girare Newsletter Strategist lun/mer/ven alle 11:00 Canarie
+    (CronCreate, legato alla sessione Claude Code) scade da solo dopo 7 giorni.
+    Rete di sicurezza: se sono passati piu' di 6 giorni dall'ultima ricreazione
+    (vedi newsletter_strategist_cron_status.json, aggiornato ogni volta che il job
+    viene ricreato), avvisa una volta sola finche' non viene ricreato."""
+    if not os.path.exists(CRON_STATUS_FILE):
+        return
+    try:
+        with open(CRON_STATUS_FILE) as f:
+            last_created_raw = json.load(f)["last_created"]
+        last_created = datetime.fromisoformat(last_created_raw.replace("Z", "+00:00"))
+    except Exception as e:
+        issues.append(f"[Newsletter Strategist cron] Impossibile leggere {CRON_STATUS_FILE}: {e}")
+        return
+
+    giorni_passati = (datetime.now(timezone.utc) - last_created).total_seconds() / 86400
+    already_alerted = load_state(NEWSLETTER_STRATEGIST_ALERT_FILE)
+    marker = last_created_raw  # un avviso per ogni "ciclo" di creazione, non uno al giorno
+
+    if giorni_passati > 6:
+        issues.append(f"[Newsletter Strategist cron] Sono passati {giorni_passati:.1f} giorni dall'ultima creazione, va ricreato")
+        if marker not in already_alerted:
+            send_jonny_alert(
+                "Jonny qui. Il job automatico di Newsletter Strategist (lun/mer/ven 11:00) "
+                "va ricreato: apri una sessione Claude Code e dimmi \"leggi il master claude\"."
+            )
+            already_alerted.add(marker)
+            save_state(NEWSLETTER_STRATEGIST_ALERT_FILE, already_alerted)
+
+
 def main():
-    landing_issues = []
-    check_landing(landing_issues)
-    check_newsletter_signup(landing_issues)
+    immediate_issues = []
+    check_landing(immediate_issues)
+    check_newsletter_signup(immediate_issues)
+    if immediate_issues:
+        send_jonny_alert(
+            "Jonny qui. Il controllo della landing page ha trovato un problema:\n\n"
+            + "\n".join(f"- {i}" for i in immediate_issues)
+        )
+
+    check_newsletter_strategist_cron(immediate_issues)
 
     altri_issues = []
     check_discord(altri_issues)
     check_brevo(altri_issues)
     check_cronjobs(altri_issues)
 
-    if landing_issues:
-        send_jonny_alert(landing_issues)
-
-    issues = landing_issues + altri_issues
+    issues = immediate_issues + altri_issues
 
     result = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
