@@ -184,6 +184,7 @@ WEEKLY_STATE_FILE = "seen_weekly.json"
 NEWSLETTER_STATE_FILE = "seen_newsletter.json"
 PDF_STATE_FILE = "seen_pdf_done.json"
 PDF_ALERT_STATE_FILE = "seen_pdf_alerted.json"
+DISCORD_ANNOUNCE_ALERT_FILE = "seen_discord_announce_alerted.json"
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -685,33 +686,18 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
     print(f"PDF caricato su Drive: {filename} (id {result.get('id')})")
 
 
-def check_newsletter():
-    """Controlla via API Brevo le campagne realmente inviate (`status=sent`) e
-    ritorna quelle non ancora annunciate su Discord (confrontate con
-    NEWSLETTER_STATE_FILE). Gira sul repo GitHub, non su una sessione/PC di
-    William, cosi' l'annuncio parte da solo anche a Mac spento."""
-    if not BREVO_API_KEY or not DISCORD_CHANNEL_ID_NEWSLETTER:
-        print("BREVO_API_KEY o DISCORD_CHANNEL_ID_NEWSLETTER mancanti, salto il controllo newsletter.")
+def fetch_sent_campaigns():
+    """Legge via API Brevo le ultime 20 campagne con status=sent. Sola lettura,
+    non segna nulla come vista/annunciata/PDF-fatta - quello lo fa chi chiama
+    questa funzione, solo DOPO un successo reale (stesso principio del fix
+    del 27/8/2026 sul PDF, esteso qui anche all'annuncio Discord)."""
+    if not BREVO_API_KEY:
         return []
-
     url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
     req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
     with urllib.request.urlopen(req) as resp:
         data = json.load(resp)
-
-    already_sent = load_state(NEWSLETTER_STATE_FILE)
-    nuove = [c for c in data.get("campaigns", []) if str(c["id"]) not in already_sent]
-    if not nuove:
-        return []
-
-    messaggi = []
-    for c in nuove:
-        nome = c["name"]
-        oggetto = c.get("subject", "")
-        messaggi.append((c["id"], nome, f"📰 Uscita Newsletter: {nome}\n{oggetto}"))
-
-    save_state(NEWSLETTER_STATE_FILE, already_sent | {str(c["id"]) for c in nuove})
-    return messaggi
+    return data.get("campaigns", [])
 
 
 def send_jonny_alert(testo):
@@ -738,33 +724,63 @@ def run_newsletter():
     davvero inviata) + generazione/upload PDF su Drive, workflow newsletter.yml,
     girato via cron-job.org, nessuna dipendenza da Mac/sessione aperta.
 
-    IMPORTANTE (corretto 27/8/2026): l'annuncio Discord e la generazione PDF
-    hanno ORA due stati separati (NEWSLETTER_STATE_FILE per l'annuncio,
-    PDF_STATE_FILE per il PDF). Prima, un fallimento del PDF (qualunque causa)
-    restava permanente perche' la campagna veniva gia' segnata "vista" solo per
-    l'annuncio Discord, senza mai piu' ritentare il PDF. Ora il PDF viene
-    ritentato a ogni giro (ogni ~30 minuti) finche' non riesce per davvero,
-    indipendentemente da Discord."""
-    messaggi = check_newsletter()
-    for campaign_id, campaign_name, msg in messaggi:
-        post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
-        print(f"Annunciata su Discord campagna {campaign_id}")
-
-    if not messaggi:
-        print("Nessuna nuova campagna da annunciare.")
-
+    IMPORTANTE (corretto 27/8/2026, esteso lo stesso giorno anche a Discord):
+    annuncio Discord, generazione PDF, e i rispettivi avvisi Jonny hanno stati
+    separati (NEWSLETTER_STATE_FILE, PDF_STATE_FILE) e vengono segnati "fatti"
+    SOLO dopo un successo reale, mai prima di tentare. Prima, un fallimento
+    (qualunque causa) restava permanente perche' la campagna veniva segnata
+    "vista" a priori, senza mai piu' ritentare. Ora entrambi vengono ritentati
+    a ogni giro (ogni ~30 minuti) finche' non riescono per davvero."""
     if not BREVO_API_KEY:
+        print("BREVO_API_KEY mancante, salto il controllo newsletter.")
         return
 
+    campaigns = fetch_sent_campaigns()
+    now = datetime.now(ZoneInfo("UTC"))
+
+    def ore_da_invio(c):
+        sent_date_raw = c.get("sentDate")
+        if not sent_date_raw:
+            return 0
+        try:
+            sent_dt = datetime.fromisoformat(sent_date_raw.replace("Z", "+00:00"))
+            return (now - sent_dt).total_seconds() / 3600
+        except Exception:
+            return 0
+
+    # --- Annuncio Discord ---
+    if DISCORD_CHANNEL_ID_NEWSLETTER:
+        already_announced = load_state(NEWSLETTER_STATE_FILE)
+        announce_alerted = load_state(DISCORD_ANNOUNCE_ALERT_FILE)
+        annunciate_ora = 0
+        for c in campaigns:
+            cid = str(c["id"])
+            if cid in already_announced:
+                continue
+            msg = f"📰 Uscita Newsletter: {c['name']}\n{c.get('subject', '')}"
+            try:
+                post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
+                already_announced.add(cid)
+                annunciate_ora += 1
+                print(f"Annunciata su Discord campagna {cid}")
+            except Exception as e:
+                print(f"Errore annunciando su Discord la campagna {cid}: {e}")
+                ore_passate = ore_da_invio(c)
+                if ore_passate > 3 and cid not in announce_alerted:
+                    send_jonny_alert(
+                        f"Jonny qui. L'annuncio Discord della campagna '{c.get('name')}' (inviata {int(ore_passate)}h fa) "
+                        f"non è ancora riuscito. Errore: {e}"
+                    )
+                    announce_alerted.add(cid)
+        if annunciate_ora == 0:
+            print("Nessuna nuova campagna da annunciare.")
+        save_state(NEWSLETTER_STATE_FILE, already_announced)
+        save_state(DISCORD_ANNOUNCE_ALERT_FILE, announce_alerted)
+
+    # --- Generazione PDF ---
     pdf_done = load_state(PDF_STATE_FILE)
     pdf_alerted = load_state(PDF_ALERT_STATE_FILE)
-    url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
-    req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.load(resp)
-
-    now = datetime.now(ZoneInfo("UTC"))
-    for c in data.get("campaigns", []):
+    for c in campaigns:
         cid = str(c["id"])
         if cid in pdf_done:
             continue
@@ -774,17 +790,7 @@ def run_newsletter():
             print(f"PDF generato per la campagna {cid}")
         except Exception as e:
             print(f"Errore generando/caricando il PDF per la campagna {cid}: {e}")
-            # avviso Jonny solo se sono passate almeno 3 ore dall'invio vero,
-            # per non disturbare per un semplice ritardo che si risolve da solo
-            sent_date_raw = c.get("sentDate")
-            if sent_date_raw:
-                try:
-                    sent_dt = datetime.fromisoformat(sent_date_raw.replace("Z", "+00:00"))
-                    ore_passate = (now - sent_dt).total_seconds() / 3600
-                except Exception:
-                    ore_passate = 0
-            else:
-                ore_passate = 0
+            ore_passate = ore_da_invio(c)
             if ore_passate > 3 and cid not in pdf_alerted:
                 send_jonny_alert(
                     f"Jonny qui. Il PDF della campagna '{c.get('name')}' (inviata {int(ore_passate)}h fa) "
