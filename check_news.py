@@ -42,6 +42,8 @@ DISCORD_CHANNEL_ID_NEWSLETTER = os.environ.get("DISCORD_CHANNEL_ID_NEWSLETTER")
 GDRIVE_CLIENT_ID = os.environ.get("GDRIVE_CLIENT_ID")
 GDRIVE_CLIENT_SECRET = os.environ.get("GDRIVE_CLIENT_SECRET")
 GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
+JONNY_BOT_TOKEN = os.environ.get("JONNY_BOT_TOKEN")
+JONNY_CHAT_ID = os.environ.get("JONNY_CHAT_ID")
 
 # cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
 GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
@@ -180,6 +182,8 @@ def is_other_country_news(title):
 NEWS_STATE_FILE = "seen_ids.json"
 WEEKLY_STATE_FILE = "seen_weekly.json"
 NEWSLETTER_STATE_FILE = "seen_newsletter.json"
+PDF_STATE_FILE = "seen_pdf_done.json"
+PDF_ALERT_STATE_FILE = "seen_pdf_alerted.json"
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -710,20 +714,86 @@ def check_newsletter():
     return messaggi
 
 
+def send_jonny_alert(testo):
+    """Avviso immediato su Telegram (bot Jonny, chat privata 1:1 con William).
+    Non deve mai far fallire il resto del controllo se manca la configurazione
+    o la chiamata fallisce."""
+    if not JONNY_BOT_TOKEN or not JONNY_CHAT_ID:
+        return
+    payload = json.dumps({"chat_id": JONNY_CHAT_ID, "text": testo}).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{JONNY_BOT_TOKEN}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=15)
+    except Exception:
+        pass
+
+
 def run_newsletter():
-    """Annuncio automatico su #newsletter + generazione/upload PDF su Drive,
-    quando una campagna Brevo risulta davvero inviata (workflow newsletter.yml,
-    girato via cron-job.org - nessuna dipendenza da Mac/sessione aperta)."""
+    """Annuncio automatico su #newsletter (quando una campagna Brevo risulta
+    davvero inviata) + generazione/upload PDF su Drive, workflow newsletter.yml,
+    girato via cron-job.org, nessuna dipendenza da Mac/sessione aperta.
+
+    IMPORTANTE (corretto 27/8/2026): l'annuncio Discord e la generazione PDF
+    hanno ORA due stati separati (NEWSLETTER_STATE_FILE per l'annuncio,
+    PDF_STATE_FILE per il PDF). Prima, un fallimento del PDF (qualunque causa)
+    restava permanente perche' la campagna veniva gia' segnata "vista" solo per
+    l'annuncio Discord, senza mai piu' ritentare il PDF. Ora il PDF viene
+    ritentato a ogni giro (ogni ~30 minuti) finche' non riesce per davvero,
+    indipendentemente da Discord."""
     messaggi = check_newsletter()
     for campaign_id, campaign_name, msg in messaggi:
         post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
         print(f"Annunciata su Discord campagna {campaign_id}")
-        try:
-            genera_e_carica_pdf(campaign_id, campaign_name)
-        except Exception as e:
-            print(f"Errore generando/caricando il PDF per la campagna {campaign_id}: {e}")
+
     if not messaggi:
         print("Nessuna nuova campagna da annunciare.")
+
+    if not BREVO_API_KEY:
+        return
+
+    pdf_done = load_state(PDF_STATE_FILE)
+    pdf_alerted = load_state(PDF_ALERT_STATE_FILE)
+    url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
+    req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
+    with urllib.request.urlopen(req) as resp:
+        data = json.load(resp)
+
+    now = datetime.now(ZoneInfo("UTC"))
+    for c in data.get("campaigns", []):
+        cid = str(c["id"])
+        if cid in pdf_done:
+            continue
+        try:
+            genera_e_carica_pdf(c["id"], c["name"])
+            pdf_done.add(cid)
+            print(f"PDF generato per la campagna {cid}")
+        except Exception as e:
+            print(f"Errore generando/caricando il PDF per la campagna {cid}: {e}")
+            # avviso Jonny solo se sono passate almeno 3 ore dall'invio vero,
+            # per non disturbare per un semplice ritardo che si risolve da solo
+            sent_date_raw = c.get("sentDate")
+            if sent_date_raw:
+                try:
+                    sent_dt = datetime.fromisoformat(sent_date_raw.replace("Z", "+00:00"))
+                    ore_passate = (now - sent_dt).total_seconds() / 3600
+                except Exception:
+                    ore_passate = 0
+            else:
+                ore_passate = 0
+            if ore_passate > 3 and cid not in pdf_alerted:
+                send_jonny_alert(
+                    f"Jonny qui. Il PDF della campagna '{c.get('name')}' (inviata {int(ore_passate)}h fa) "
+                    f"non si è ancora generato. Errore: {e}"
+                )
+                pdf_alerted.add(cid)
+
+    save_state(PDF_STATE_FILE, pdf_done)
+    save_state(PDF_ALERT_STATE_FILE, pdf_alerted)
 
 
 def run_alert_event():
