@@ -324,12 +324,19 @@ def main():
 
     check_newsletter_strategist_cron(immediate_issues)
 
+    discord_issues = []
+    check_discord(discord_issues)
+    if discord_issues:
+        send_jonny_alert(
+            "Jonny qui. Il controllo di Discord ha trovato un problema:\n\n"
+            + "\n".join(f"- {i}" for i in discord_issues)
+        )
+
     altri_issues = []
-    check_discord(altri_issues)
     check_brevo(altri_issues)
     check_cronjobs(altri_issues)
 
-    issues = immediate_issues + altri_issues
+    issues = immediate_issues + discord_issues + altri_issues
 
     result = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
