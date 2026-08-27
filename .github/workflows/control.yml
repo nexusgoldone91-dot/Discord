@@ -21,6 +21,8 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           CRONJOB_API_KEY: ${{ secrets.CRONJOB_API_KEY }}
+          JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
+          JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
         run: python check_all.py
 
       - name: Salva lo stato
