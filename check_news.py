@@ -638,15 +638,17 @@ def generate_pdf_from_html(html_content):
 
 def genera_e_carica_pdf(campaign_id, campaign_name):
     """Genera il PDF di una campagna Brevo e lo carica nella cartella Drive giusta,
-    capendo dal nome campagna se e' un'edizione numerata o la serie ad-hoc XAUUSD."""
+    capendo dal nome campagna se e' un'edizione numerata, la serie Bonus, o la
+    serie ad-hoc XAUUSD."""
     if not (GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET and GDRIVE_REFRESH_TOKEN):
         print("Credenziali Google Drive mancanti, salto la generazione PDF.")
         return
 
     m_xau = XAU_CAMPAIGN_RE.match(campaign_name)
-    m_ed = EDIZIONE_CAMPAIGN_RE.match(campaign_name)
-    if not m_xau and not m_ed:
-        print(f"Nome campagna '{campaign_name}' non riconosciuto (ne' 'Aggiornamento XAUUSD ...' ne' '... - Edizione #NN'), salto il PDF.")
+    m_bonus = BONUS_CAMPAIGN_RE.match(campaign_name)
+    m_ed = None if m_bonus else EDIZIONE_CAMPAIGN_RE.match(campaign_name)
+    if not m_xau and not m_bonus and not m_ed:
+        print(f"Nome campagna '{campaign_name}' non riconosciuto (ne' 'Aggiornamento XAUUSD ...' ne' 'Bonus N - ...' ne' '... - NN'), salto il PDF.")
         return
 
     req = urllib.request.Request(
@@ -665,6 +667,10 @@ def genera_e_carica_pdf(campaign_id, campaign_name):
         esistenti = gdrive_list_files(access_token, folder_id)
         numero = len(esistenti) + 1
         filename = f"{numero}. Analisi del {data_str}.pdf"
+    elif m_bonus:
+        numero_str, titolo = m_bonus.group(1), m_bonus.group(2)
+        folder_id = GDRIVE_FOLDER_BONUS
+        filename = f"{int(numero_str)}. {titolo}.pdf"
     else:
         titolo, numero_str = m_ed.group(1), m_ed.group(2)
         folder_id = GDRIVE_FOLDER_NEWSLETTER
