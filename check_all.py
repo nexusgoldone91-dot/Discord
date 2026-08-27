@@ -25,6 +25,18 @@ from datetime import datetime, timezone
 
 STATE_FILE = "control_status.json"
 
+
+def load_state(path):
+    if os.path.exists(path):
+        with open(path) as f:
+            return set(json.load(f))
+    return set()
+
+
+def save_state(path, values):
+    with open(path, "w") as f:
+        json.dump(list(values)[-500:], f)
+
 # ---------- 1. LANDING PAGE ----------
 
 SITE_URL = "https://nexusgoldone.com/"
