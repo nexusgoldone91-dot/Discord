@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-08-27T17:54:47Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-08-27T17:57:03Z",
+  "ok": false,
+  "issues": [
+    "[Newsletter Strategist cron] Sono passati 26.3 giorni dall'ultima creazione, va ricreato"
+  ]
 }
