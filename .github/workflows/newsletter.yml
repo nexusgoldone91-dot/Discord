@@ -40,6 +40,9 @@ jobs:
           git config user.name "xauusd-alert-bot"
           git config user.email "actions@github.com"
           git pull --no-edit || true
-          git add seen_newsletter.json seen_pdf_done.json seen_pdf_alerted.json || true
+          git add seen_newsletter.json || true
+          git add seen_pdf_done.json || true
+          git add seen_pdf_alerted.json || true
+          git add seen_discord_announce_alerted.json || true
           git diff --staged --quiet || git commit -m "aggiorna stato annunci newsletter"
           git push || true
