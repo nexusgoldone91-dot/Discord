@@ -46,6 +46,7 @@ GDRIVE_REFRESH_TOKEN = os.environ.get("GDRIVE_REFRESH_TOKEN")
 # cartelle Drive newsletter (vedi Nexus Claude/REGISTRO_PUBBLICAZIONI.md)
 GDRIVE_FOLDER_NEWSLETTER = "1Ou4eXbMfWo-ifKEHT_NuMgIZ2-77aUz2"  # "recupero email", edizioni numerate #01-#20
 GDRIVE_FOLDER_XAUUSD = "1Mhw_RdsAB7ka-IwtWbWP8mPVOh0r9Okv"  # "Analisi XAUUSD", serie ad-hoc
+GDRIVE_FOLDER_BONUS = "1Nzu56V9UYEUq3JxOFIFq87CKi53QIgFG"  # "I Pattern della Psicologia nel Trading", serie Bonus del giovedi
 
 NEWS_FEEDS = [
     "https://www.investing.com/rss/news_285.rss",       # Commodities news
@@ -550,7 +551,8 @@ def run_calendar():
 
 
 XAU_CAMPAIGN_RE = re.compile(r"^Aggiornamento XAUUSD (.+)$")
-EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - Edizione #(\d+)$")
+EDIZIONE_CAMPAIGN_RE = re.compile(r"^(.+) - (\d+)$")
+BONUS_CAMPAIGN_RE = re.compile(r"^Bonus (\d+) - (.+)$")
 
 
 def get_gdrive_access_token():
