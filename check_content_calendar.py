@@ -1,31 +1,30 @@
 #!/usr/bin/env python3
 """
-Controllo automatico calendario contenuti (email + Instagram) - NexusGoldOne.
-Deciso con William il 27/8/2026: dalla settimana del 1/9 in poi, ogni uscita
-(email o contenuto Instagram) va segnata sul Google Calendar con un prefisso
-fisso nel titolo:
-- "Email: <titolo>" per le edizioni newsletter
-- "IG: <tipo> <titolo>" per reel/caroselli/post Instagram (es. "IG: Reel FOMO")
+Controllo automatico calendario contenuti Instagram - NexusGoldOne.
+Ristretto il 28/8/2026 su richiesta esplicita di William: SOLO i reel
+Instagram del giovedi' (titolo calendario "(emoji) Reel Instagram - <Pattern>"),
+NIENTE PIU' email/newsletter (quelle le controlla lui direttamente) e NIENTE
+PIU' promemoria generico per gli altri eventi del calendario (chiamate, cose
+da fare, Live Session, ecc.) - tutto questo era il comportamento vecchio,
+disattivato appositamente, non riattivarlo senza una richiesta esplicita
+nuova di William.
 
-Gira ogni ~5 minuti (workflow content_calendar.yml, cron-job.org, indipendente
-da sessioni/PC di William). Per ogni evento "Email:"/"IG:" il cui orario di
-inizio e' passato da almeno 10 minuti e non ancora controllato, verifica se
-il contenuto e' comparso davvero:
-- Email: cerca una campagna Brevo "sent" con sentDate vicino all'orario
-  dell'evento (finestra +-20 minuti)
-- Instagram: cerca un media pubblicato sul profilo (Graph API) con timestamp
-  vicino all'orario dell'evento (finestra fino a +30 minuti dopo, i post non
-  compaiono mai prima dell'orario previsto)
+Bug reale corretto in questo giro: la versione precedente cercava un titolo
+che iniziasse per "IG:", ma gli eventi reali creati da newsletter-strategist
+sono nel formato "Reel Instagram - <Pattern>" (con emoji davanti) - non
+avrebbe mai trovato nulla da controllare. Il match ora e' su "Reel Instagram"
+ovunque nel titolo, non solo un prefisso esatto.
+
+Gira ogni ~5 minuti (workflow content_calendar.yml, cron-job.org). Per ogni
+evento "Reel Instagram" il cui orario di inizio e' passato da almeno 10
+minuti e non ancora controllato, verifica se il contenuto e' comparso
+davvero: cerca un media pubblicato sul profilo (Graph API) con timestamp
+vicino all'orario dell'evento (finestra fino a +30 minuti dopo, i post non
+compaiono mai prima dell'orario previsto).
 
 Se lo trova, segna l'evento come controllato, silenzio. Se non lo trova,
 avvisa Jonny su Telegram UNA volta sola per quell'evento (mai piu' di un
 avviso per lo stesso evento), poi lo segna comunque come controllato.
-
-QUALSIASI ALTRO evento (chiamate segnate col nome della persona, cose da
-fare, senza il prefisso "Email:"/"IG:") riceve invece un promemoria 30
-minuti PRIMA dell'orario di inizio, col titolo dell'evento relayato cosi'
-com'e' (deciso il 27/8/2026, William: "se e' da fare leggo cosa fare, e se
-e' una persona leggo il nome").
 """
 
 import json
@@ -39,8 +38,6 @@ GCAL_CLIENT_ID = os.environ["GCAL_CLIENT_ID"]
 GCAL_CLIENT_SECRET = os.environ["GCAL_CLIENT_SECRET"]
 GCAL_REFRESH_TOKEN = os.environ["GCAL_REFRESH_TOKEN"]
 GCAL_CALENDAR_ID = os.environ.get("GCAL_CALENDAR_ID", "primary")
-
-BREVO_API_KEY = os.environ.get("BREVO_API_KEY")
 
 IG_ACCESS_TOKEN = os.environ.get("IG_ACCESS_TOKEN")
 IG_BUSINESS_ACCOUNT_ID = os.environ.get("IG_BUSINESS_ACCOUNT_ID")
@@ -106,27 +103,6 @@ def get_recent_events(access_token, hours_back=3, hours_forward=1):
     return data.get("items", [])
 
 
-def check_email_published(event_start):
-    """None = non verificabile (credenziali mancanti), True/False = esito reale."""
-    if not BREVO_API_KEY:
-        return None
-    url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
-    req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
-    with urllib.request.urlopen(req) as resp:
-        data = json.load(resp)
-    for c in data.get("campaigns", []):
-        sent_date_raw = c.get("sentDate")
-        if not sent_date_raw:
-            continue
-        try:
-            sent_dt = datetime.fromisoformat(sent_date_raw.replace("Z", "+00:00"))
-        except Exception:
-            continue
-        if abs((sent_dt - event_start).total_seconds()) <= 20 * 60:
-            return True
-    return False
-
-
 def check_instagram_published(event_start):
     """None = non verificabile (credenziali mancanti), True/False = esito reale."""
     if not IG_ACCESS_TOKEN or not IG_BUSINESS_ACCOUNT_ID:
@@ -169,6 +145,9 @@ def main():
         if not event_id or event_id in checked:
             continue
 
+        if "Reel Instagram" not in title:
+            continue  # SOLO reel Instagram del giovedi', tutto il resto ignorato di proposito
+
         start_raw = ev.get("start", {}).get("dateTime")
         if not start_raw:
             continue  # evento senza orario preciso (tutto il giorno), salta
@@ -178,43 +157,26 @@ def main():
         except Exception:
             continue
 
-        if title.startswith("Email:") or title.startswith("IG:"):
-            minuti_passati = (now - event_start).total_seconds() / 60
-            if minuti_passati < 10:
-                continue  # non ancora il momento di controllare
+        minuti_passati = (now - event_start).total_seconds() / 60
+        if minuti_passati < 10:
+            continue  # non ancora il momento di controllare
 
-            if title.startswith("Email:"):
-                esito = check_email_published(event_start)
-                tipo = "email"
-            else:
-                esito = check_instagram_published(event_start)
-                tipo = "contenuto Instagram"
+        esito = check_instagram_published(event_start)
 
-            if esito is None:
-                print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
-                continue  # non segnato come controllato, ritenta al giro dopo
+        if esito is None:
+            print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
+            continue  # non segnato come controllato, ritenta al giro dopo
 
-            novita = True
-            if esito:
-                print(f"Evento '{title}': pubblicato correttamente.")
-            else:
-                print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
-                send_jonny_alert(
-                    f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
-                    f"({tipo}, previsto per le {event_start.astimezone().strftime('%H:%M')})."
-                )
-            checked.add(event_id)
-
+        novita = True
+        if esito:
+            print(f"Evento '{title}': pubblicato correttamente.")
         else:
-            # Promemoria generico (chiamate con nome persona, cose da fare):
-            # avviso 30 minuti PRIMA dell'orario del calendario, titolo relayato cosi' com'e'.
-            minuti_a_evento = (event_start - now).total_seconds() / 60
-            if 25 <= minuti_a_evento <= 35:
-                novita = True
-                print(f"Promemoria per '{title}' (tra mezz'ora).")
-                send_jonny_alert(f"Jonny qui. Ti ricordo: {title}, tra mezz'ora.")
-                checked.add(event_id)
-            # fuori dalla finestra dei 30 minuti: lasciato non segnato, si ricontrolla al giro dopo
+            print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
+            send_jonny_alert(
+                f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
+                f"(previsto per le {event_start.astimezone().strftime('%H:%M')})."
+            )
+        checked.add(event_id)
 
     if not novita:
         print("Nessun evento nuovo da controllare in questo giro.")
