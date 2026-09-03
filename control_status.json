@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-09-03T05:15:29Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-09-03T08:15:45Z",
+  "ok": false,
+  "issues": [
+    "[Discord] Bot non raggiungibile: The read operation timed out"
+  ]
 }
