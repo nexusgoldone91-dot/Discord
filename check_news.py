@@ -253,8 +253,34 @@ def is_question_title(title):
     return "?" in title
 
 
+# Titoli-esca/teaser (es. "Here's another way rising bond yields could strain
+# American portfolios") vengono scartati sempre: si traducono benissimo, ma
+# restano "a metà" perche' non dicono MAI la cosa vera e propria, solo che
+# "esiste un modo/motivo/ragione" - il bot manda solo il titolo, mai il link
+# all'articolo (William ha rifiutato esplicitamente di aggiungerlo in passato),
+# quindi un titolo-esca senza il link arriva senza senso. William l'ha
+# segnalato il 3/9/2026 e ha chiesto di filtrarli via, anche a costo di avere
+# meno notizie, invece di ripescare l'idea del link.
+TEASER_OPENERS = [
+    "here's another way", "here's why", "here's how", "here's what",
+    "here's a look", "here's one reason", "this could be", "this is what",
+    "this is why", "this is how", "what this means", "why this matters",
+    "the real reason", "one more reason", "one reason why",
+]
+
+
+def is_teaser_title(title):
+    t = title.strip().lower()
+    if any(t.startswith(opener) for opener in TEASER_OPENERS):
+        return True
+    # titolo troncato dalla fonte stessa (finisce con puntini di sospensione)
+    return title.strip().endswith("...")
+
+
 def matches_keywords(title):
     if is_question_title(title):
+        return False
+    if is_teaser_title(title):
         return False
     if is_pure_casualty_news(title):
         return False
