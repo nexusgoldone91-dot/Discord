@@ -180,6 +180,7 @@ def is_other_country_news(title):
 
 
 NEWS_STATE_FILE = "seen_ids.json"
+NEWS_TITLE_STATE_FILE = "seen_titles.json"  # file a parte: il cap dei titoli non deve mangiarsi i guid e viceversa
 WEEKLY_STATE_FILE = "seen_weekly.json"
 NEWSLETTER_STATE_FILE = "seen_newsletter.json"
 PDF_STATE_FILE = "seen_pdf_done.json"
@@ -263,15 +264,33 @@ def is_question_title(title):
 # meno notizie, invece di ripescare l'idea del link.
 TEASER_OPENERS = [
     "here's another way", "here's why", "here's how", "here's what",
-    "here's a look", "here's one reason", "this could be", "this is what",
+    "here's a look", "here's a", "here's one reason", "here are",
+    "these are", "this could be", "this is what",
     "this is why", "this is how", "what this means", "why this matters",
+    "what to know", "what you need to know", "everything you need to know",
+    "the case for", "the case against", "how to",
     "the real reason", "one more reason", "one reason why",
 ]
+
+# Titoli-lista/esca: "3 scenarios that could push gold above $5,000",
+# "Here are three reasons why...", "Five charts that explain...". Stessa logica
+# dei teaser (il titolo da solo non dice mai la cosa vera, e il bot manda solo
+# il titolo, mai il link). Copre sia le cifre (3) sia i numeri scritti fino a
+# dieci, con o senza "here are/is/'s" davanti. William l'ha segnalato il
+# 5/9/2026 dopo che "Ecco tre scenari che potrebbero portare l'oro sopra i
+# 5.000 dollari" e' passato lo stesso.
+_TEASER_NUMBER = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+_TEASER_LIST_NOUN = r"(?:ways?|reasons?|scenarios?|charts?|graphs?|things?|signs?|factors?)"
+TEASER_LIST_RE = re.compile(
+    r"^(?:here\s+(?:are|is|'s)\s+)?" + _TEASER_NUMBER + r"\s+" + _TEASER_LIST_NOUN + r"\b"
+)
 
 
 def is_teaser_title(title):
     t = title.strip().lower()
     if any(t.startswith(opener) for opener in TEASER_OPENERS):
+        return True
+    if TEASER_LIST_RE.match(t):
         return True
     # titolo troncato dalla fonte stessa (finisce con puntini di sospensione)
     return title.strip().endswith("...")
@@ -309,8 +328,22 @@ def save_state(path, values):
         json.dump(list(values)[-500:], f)
 
 
+_TITLE_TRAILING_PUNCT_RE = re.compile(r"[\s\.\,\;\:\!\?\-–—\"'‘’“”]+$")
+
+
+def normalize_title(title):
+    """Titolo ridotto a forma canonica per il dedup: minuscolo, spazi collassati,
+    punteggiatura finale rimossa. Cosi' lo stesso titolo che esce da due feed
+    diversi (o ripubblicato con un guid nuovo) non ripassa."""
+    t = (title or "").strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    t = _TITLE_TRAILING_PUNCT_RE.sub("", t)
+    return t
+
+
 def check_news():
     seen = load_state(NEWS_STATE_FILE)
+    seen_titles = load_state(NEWS_TITLE_STATE_FILE)
     new_relevant = []
 
     for feed_url in NEWS_FEEDS:
@@ -318,10 +351,16 @@ def check_news():
             if item["guid"] in seen:
                 continue
             seen.add(item["guid"])
+            norm_title = normalize_title(item["title"])
+            if norm_title and norm_title in seen_titles:
+                continue  # doppione: stesso titolo gia' pubblicato (altro feed o guid nuovo)
             if matches_keywords(item["title"]):
+                if norm_title:
+                    seen_titles.add(norm_title)
                 new_relevant.append(item)
 
     save_state(NEWS_STATE_FILE, seen)
+    save_state(NEWS_TITLE_STATE_FILE, seen_titles)
 
     lines = []
     for it in new_relevant[:8]:
