@@ -1,30 +1,42 @@
 #!/usr/bin/env python3
 """
 Controllo automatico calendario contenuti Instagram - NexusGoldOne.
-Ristretto il 28/8/2026 su richiesta esplicita di William: SOLO i reel
-Instagram del giovedi' (titolo calendario "(emoji) Reel Instagram - <Pattern>"),
-NIENTE PIU' email/newsletter (quelle le controlla lui direttamente) e NIENTE
+
+Ristretto il 28/8/2026 su richiesta esplicita di William: SOLO i contenuti
+Instagram, NIENTE PIU' email/newsletter (quelle le controlla lui) e NIENTE
 PIU' promemoria generico per gli altri eventi del calendario (chiamate, cose
-da fare, Live Session, ecc.) - tutto questo era il comportamento vecchio,
-disattivato appositamente, non riattivarlo senza una richiesta esplicita
-nuova di William.
+da fare, Live Session, ecc.) - comportamento vecchio, disattivato apposta,
+non riattivarlo senza una richiesta nuova di William.
 
-Bug reale corretto in questo giro: la versione precedente cercava un titolo
-che iniziasse per "IG:", ma gli eventi reali creati da newsletter-strategist
-sono nel formato "Reel Instagram - <Pattern>" (con emoji davanti) - non
-avrebbe mai trovato nulla da controllare. Il match ora e' su "Reel Instagram"
-ovunque nel titolo, non solo un prefisso esatto.
+Esteso il 7/9/2026 su richiesta di William: oltre a "Reel Instagram" ora
+gestisce anche gli eventi con "Post Instagram" nel titolo. Gli eventi reali
+hanno titolo tipo "(emoji) Reel Instagram - <nome>" e
+"(emoji) Post Instagram - <nome>"; il match e' su quelle due stringhe
+ovunque nel titolo, non un prefisso esatto.
 
-Gira ogni ~5 minuti (workflow content_calendar.yml, cron-job.org). Per ogni
-evento "Reel Instagram" il cui orario di inizio e' passato da almeno 10
-minuti e non ancora controllato, verifica se il contenuto e' comparso
-davvero: cerca un media pubblicato sul profilo (Graph API) con timestamp
-vicino all'orario dell'evento (finestra fino a +30 minuti dopo, i post non
-compaiono mai prima dell'orario previsto).
+Gira ogni ~5 minuti (workflow content_calendar.yml, cron-job.org).
 
-Se lo trova, segna l'evento come controllato, silenzio. Se non lo trova,
-avvisa Jonny su Telegram UNA volta sola per quell'evento (mai piu' di un
-avviso per lo stesso evento), poi lo segna comunque come controllato.
+Cosa fa per ciascun tipo:
+
+- "Reel Instagram" (programmati su TikTok via Buffer): SOLO controllo dopo.
+  Se l'orario di inizio e' passato da almeno 10 minuti e l'evento non e'
+  ancora stato controllato, verifica via Instagram Graph API se il reel e'
+  comparso davvero (media con timestamp tra l'orario evento e +30 minuti).
+  Se non lo trova, avvisa Jonny su Telegram UNA volta sola per quell'evento.
+  Nessun promemoria "pre".
+
+- "Post Instagram" (post-foto pubblicati a mano da William, da mettere a mano
+  anche su TikTok):
+  a) Promemoria PRE: quando mancano tra 15 e 10 minuti all'orario di inizio
+     (finestra -15..-10 min, larga abbastanza da non perdersi tra un giro e
+     l'altro dello scheduler), manda UNA volta a Jonny un promemoria di
+     pubblicare a mano su TikTok.
+  b) Controllo DOPO: identico a quello dei reel.
+
+Stato "gia' visto" in seen_calendar_checks.json. Le chiavi distinguono i due
+trigger cosi' non si sovrascrivono: "<event_id>:pre" per il promemoria,
+"<event_id>:post" per il controllo. Le vecchie voci sono id nudi (erano solo
+controlli-dopo di reel) e vengono ancora riconosciute come "<event_id>:post".
 """
 
 import json
@@ -46,6 +58,14 @@ JONNY_BOT_TOKEN = os.environ.get("JONNY_BOT_TOKEN")
 JONNY_CHAT_ID = os.environ.get("JONNY_CHAT_ID")
 
 STATE_FILE = "seen_calendar_checks.json"
+
+REEL_MATCH = "Reel Instagram"
+POST_MATCH = "Post Instagram"
+
+PRE_REMINDER_TEXT = (
+    'Jonny qui. Tra 15 minuti tocca pubblicare a mano su TikTok: '
+    '"{title}". (Instagram lo fai come al solito.)'
+)
 
 
 def load_state():
@@ -127,6 +147,56 @@ def check_instagram_published(event_start):
     return False
 
 
+def parse_event_start(ev):
+    start_raw = ev.get("start", {}).get("dateTime")
+    if not start_raw:
+        return None  # evento senza orario preciso (tutto il giorno), salta
+    try:
+        return datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def plan_actions(ev, now, checked):
+    """Logica pura, senza effetti collaterali: decide cosa fare per un evento.
+
+    Ritorna una lista di tuple:
+      ("pre_reminder", event_id, title)
+      ("post_check", event_id, title, event_start)
+    Lista vuota = niente da fare per questo evento in questo giro.
+    """
+    actions = []
+    title = ev.get("summary", "") or ""
+    event_id = ev.get("id")
+    if not event_id:
+        return actions
+
+    is_reel = REEL_MATCH in title
+    is_post = POST_MATCH in title
+    if not (is_reel or is_post):
+        return actions  # SOLO "Reel Instagram" e "Post Instagram", il resto ignorato di proposito
+
+    event_start = parse_event_start(ev)
+    if event_start is None:
+        return actions
+
+    minuti_delta = (now - event_start).total_seconds() / 60  # negativo = evento ancora nel futuro
+
+    # Promemoria PRE: solo "Post Instagram", finestra -15..-10 min rispetto allo start
+    if is_post:
+        pre_key = f"{event_id}:pre"
+        if pre_key not in checked and -15 <= minuti_delta <= -10:
+            actions.append(("pre_reminder", event_id, title))
+
+    # Controllo DOPO: reel e post, uguale per entrambi
+    post_key = f"{event_id}:post"
+    already_post_checked = post_key in checked or event_id in checked  # event_id nudo = stato legacy dei reel
+    if not already_post_checked and minuti_delta >= 10:
+        actions.append(("post_check", event_id, title, event_start))
+
+    return actions
+
+
 def main():
     try:
         access_token = get_gcal_access_token()
@@ -140,43 +210,32 @@ def main():
     novita = False
 
     for ev in events:
-        title = ev.get("summary", "") or ""
-        event_id = ev.get("id")
-        if not event_id or event_id in checked:
-            continue
+        for action in plan_actions(ev, now, checked):
+            kind = action[0]
 
-        if "Reel Instagram" not in title:
-            continue  # SOLO reel Instagram del giovedi', tutto il resto ignorato di proposito
+            if kind == "pre_reminder":
+                _, event_id, title = action
+                send_jonny_alert(PRE_REMINDER_TEXT.format(title=title))
+                print(f"Evento '{title}': promemoria pre-pubblicazione inviato a Jonny.")
+                checked.add(f"{event_id}:pre")
+                novita = True
 
-        start_raw = ev.get("start", {}).get("dateTime")
-        if not start_raw:
-            continue  # evento senza orario preciso (tutto il giorno), salta
-
-        try:
-            event_start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-        except Exception:
-            continue
-
-        minuti_passati = (now - event_start).total_seconds() / 60
-        if minuti_passati < 10:
-            continue  # non ancora il momento di controllare
-
-        esito = check_instagram_published(event_start)
-
-        if esito is None:
-            print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
-            continue  # non segnato come controllato, ritenta al giro dopo
-
-        novita = True
-        if esito:
-            print(f"Evento '{title}': pubblicato correttamente.")
-        else:
-            print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
-            send_jonny_alert(
-                f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
-                f"(previsto per le {event_start.astimezone().strftime('%H:%M')})."
-            )
-        checked.add(event_id)
+            elif kind == "post_check":
+                _, event_id, title, event_start = action
+                esito = check_instagram_published(event_start)
+                if esito is None:
+                    print(f"Evento '{title}': credenziali mancanti per verificarlo, ritento al prossimo giro.")
+                    continue  # non segnato come controllato, ritenta al giro dopo
+                novita = True
+                if esito:
+                    print(f"Evento '{title}': pubblicato correttamente.")
+                else:
+                    print(f"Evento '{title}': NON risulta pubblicato, avviso Jonny.")
+                    send_jonny_alert(
+                        f"Jonny qui. Non vedo ancora pubblicato: \"{title}\" "
+                        f"(previsto per le {event_start.astimezone().strftime('%H:%M')})."
+                    )
+                checked.add(f"{event_id}:post")
 
     if not novita:
         print("Nessun evento nuovo da controllare in questo giro.")
