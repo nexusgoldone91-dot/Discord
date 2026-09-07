@@ -26,11 +26,13 @@ Cosa fa per ciascun tipo:
   Nessun promemoria "pre".
 
 - "Post Instagram" (post-foto pubblicati a mano da William, da mettere a mano
-  anche su TikTok):
-  a) Promemoria PRE: quando mancano tra 15 e 10 minuti all'orario di inizio
-     (finestra -15..-10 min, larga abbastanza da non perdersi tra un giro e
+  sia su Instagram sia su TikTok):
+  a) Promemoria PRE: quando mancano tra 30 e 25 minuti all'orario di inizio
+     (finestra -30..-25 min, larga abbastanza da non perdersi tra un giro e
      l'altro dello scheduler), manda UNA volta a Jonny un promemoria di
-     pubblicare a mano su TikTok.
+     pubblicare a mano. Se nella "description" dell'evento c'e' una riga che
+     inizia con "NOTA JONNY:", il testo dopo i due punti viene aggiunto in
+     fondo al messaggio.
   b) Controllo DOPO: identico a quello dei reel.
 
 Stato "gia' visto" in seen_calendar_checks.json. Le chiavi distinguono i due
@@ -62,10 +64,30 @@ STATE_FILE = "seen_calendar_checks.json"
 REEL_MATCH = "Reel Instagram"
 POST_MATCH = "Post Instagram"
 
-PRE_REMINDER_TEXT = (
-    'Jonny qui. Tra 15 minuti tocca pubblicare a mano su TikTok: '
-    '"{title}". (Instagram lo fai come al solito.)'
-)
+NOTA_JONNY_PREFIX = "NOTA JONNY:"
+
+
+def extract_nota_jonny(description):
+    """Cerca nella descrizione dell'evento una riga 'NOTA JONNY: ...' e ne
+    ritorna il testo dopo i due punti (None se assente/vuota)."""
+    if not description:
+        return None
+    for line in description.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith(NOTA_JONNY_PREFIX):
+            nota = stripped[len(NOTA_JONNY_PREFIX):].strip()
+            return nota or None
+    return None
+
+
+def build_pre_reminder(title, nota=None):
+    msg = (
+        f'Jonny qui. Tra mezz\'ora tocca il post: "{title}". '
+        f'Pubblica a mano su Instagram e TikTok.'
+    )
+    if nota:
+        msg += f" {nota}"
+    return msg
 
 
 def load_state():
@@ -161,7 +183,7 @@ def plan_actions(ev, now, checked):
     """Logica pura, senza effetti collaterali: decide cosa fare per un evento.
 
     Ritorna una lista di tuple:
-      ("pre_reminder", event_id, title)
+      ("pre_reminder", event_id, title, nota)   # nota = testo NOTA JONNY o None
       ("post_check", event_id, title, event_start)
     Lista vuota = niente da fare per questo evento in questo giro.
     """
@@ -182,11 +204,12 @@ def plan_actions(ev, now, checked):
 
     minuti_delta = (now - event_start).total_seconds() / 60  # negativo = evento ancora nel futuro
 
-    # Promemoria PRE: solo "Post Instagram", finestra -15..-10 min rispetto allo start
+    # Promemoria PRE: solo "Post Instagram", finestra -30..-25 min rispetto allo start
     if is_post:
         pre_key = f"{event_id}:pre"
-        if pre_key not in checked and -15 <= minuti_delta <= -10:
-            actions.append(("pre_reminder", event_id, title))
+        if pre_key not in checked and -30 <= minuti_delta <= -25:
+            nota = extract_nota_jonny(ev.get("description", ""))
+            actions.append(("pre_reminder", event_id, title, nota))
 
     # Controllo DOPO: reel e post, uguale per entrambi
     post_key = f"{event_id}:post"
@@ -214,8 +237,8 @@ def main():
             kind = action[0]
 
             if kind == "pre_reminder":
-                _, event_id, title = action
-                send_jonny_alert(PRE_REMINDER_TEXT.format(title=title))
+                _, event_id, title, nota = action
+                send_jonny_alert(build_pre_reminder(title, nota))
                 print(f"Evento '{title}': promemoria pre-pubblicazione inviato a Jonny.")
                 checked.add(f"{event_id}:pre")
                 novita = True
