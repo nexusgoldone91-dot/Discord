@@ -784,22 +784,8 @@ def send_jonny_alert(testo):
         pass
 
 
-def run_newsletter():
-    """Annuncio automatico su #newsletter (quando una campagna Brevo risulta
-    davvero inviata) + generazione/upload PDF su Drive, workflow newsletter.yml,
-    girato via cron-job.org, nessuna dipendenza da Mac/sessione aperta.
-
-    IMPORTANTE (corretto 27/8/2026, esteso lo stesso giorno anche a Discord):
-    annuncio Discord, generazione PDF, e i rispettivi avvisi Jonny hanno stati
-    separati (NEWSLETTER_STATE_FILE, PDF_STATE_FILE) e vengono segnati "fatti"
-    SOLO dopo un successo reale, mai prima di tentare. Prima, un fallimento
-    (qualunque causa) restava permanente perche' la campagna veniva segnata
-    "vista" a priori, senza mai piu' ritentare. Ora entrambi vengono ritentati
-    a ogni giro (ogni ~30 minuti) finche' non riescono per davvero."""
-    if not BREVO_API_KEY:
-        print("BREVO_API_KEY mancante, salto il controllo newsletter.")
-        return
-
+def _newsletter_context():
+    """Campagne Brevo sent + helper 'ore da invio', condivisi tra annuncio e PDF."""
     campaigns = fetch_sent_campaigns()
     now = datetime.now(ZoneInfo("UTC"))
 
@@ -813,36 +799,80 @@ def run_newsletter():
         except Exception:
             return 0
 
-    # --- Annuncio Discord ---
-    if DISCORD_CHANNEL_ID_NEWSLETTER:
-        already_announced = load_state(NEWSLETTER_STATE_FILE)
-        announce_alerted = load_state(DISCORD_ANNOUNCE_ALERT_FILE)
-        annunciate_ora = 0
-        for c in campaigns:
-            cid = str(c["id"])
-            if cid in already_announced:
-                continue
-            msg = f"📰 Uscita Newsletter: {c['name']}\n{c.get('subject', '')}"
-            try:
-                post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
-                already_announced.add(cid)
-                annunciate_ora += 1
-                print(f"Annunciata su Discord campagna {cid}")
-            except Exception as e:
-                print(f"Errore annunciando su Discord la campagna {cid}: {e}")
-                ore_passate = ore_da_invio(c)
-                if ore_passate > 3 and cid not in announce_alerted:
-                    send_jonny_alert(
-                        f"Jonny qui. L'annuncio Discord della campagna '{c.get('name')}' (inviata {int(ore_passate)}h fa) "
-                        f"non è ancora riuscito. Errore: {e}"
-                    )
-                    announce_alerted.add(cid)
-        if annunciate_ora == 0:
-            print("Nessuna nuova campagna da annunciare.")
-        save_state(NEWSLETTER_STATE_FILE, already_announced)
-        save_state(DISCORD_ANNOUNCE_ALERT_FILE, announce_alerted)
+    return campaigns, ore_da_invio
 
-    # --- Generazione PDF ---
+
+def _campagne_senza_pdf():
+    """Campagne sent con un nome riconoscibile (edizione / Bonus / XAUUSD) che
+    non risultano ancora con il PDF fatto. Sola lettura, nessuno stato toccato,
+    nessuna dipendenza da Playwright."""
+    if not BREVO_API_KEY:
+        return []
+    pdf_done = load_state(PDF_STATE_FILE)
+    campaigns, _ = _newsletter_context()
+    fuori = []
+    for c in campaigns:
+        if str(c["id"]) in pdf_done:
+            continue
+        name = c.get("name", "")
+        if XAU_CAMPAIGN_RE.match(name) or BONUS_CAMPAIGN_RE.match(name) or EDIZIONE_CAMPAIGN_RE.match(name):
+            fuori.append(c)
+    return fuori
+
+
+def run_newsletter_announce():
+    """SOLO l'annuncio su #newsletter quando una campagna Brevo risulta inviata.
+    NESSUNA dipendenza da Playwright/Chrome: gira sempre, anche quando il repo
+    Chrome di Google e' irraggiungibile (era il motivo per cui l'intero giro,
+    annuncio incluso, falliva in loop dal 9/9/2026). Stato in NEWSLETTER_STATE_FILE,
+    separato dal PDF: viene segnato "fatto" solo dopo un post riuscito davvero."""
+    if not BREVO_API_KEY:
+        print("BREVO_API_KEY mancante, salto l'annuncio newsletter.")
+        return
+    if not DISCORD_CHANNEL_ID_NEWSLETTER:
+        print("DISCORD_CHANNEL_ID_NEWSLETTER mancante, salto l'annuncio newsletter.")
+        return
+
+    campaigns, ore_da_invio = _newsletter_context()
+    already_announced = load_state(NEWSLETTER_STATE_FILE)
+    announce_alerted = load_state(DISCORD_ANNOUNCE_ALERT_FILE)
+    annunciate_ora = 0
+    for c in campaigns:
+        cid = str(c["id"])
+        if cid in already_announced:
+            continue
+        msg = f"📰 Uscita Newsletter: {c['name']}\n{c.get('subject', '')}"
+        try:
+            post_to_discord(DISCORD_CHANNEL_ID_NEWSLETTER, msg)
+            already_announced.add(cid)
+            annunciate_ora += 1
+            print(f"Annunciata su Discord campagna {cid}")
+        except Exception as e:
+            print(f"Errore annunciando su Discord la campagna {cid}: {e}")
+            ore_passate = ore_da_invio(c)
+            if ore_passate > 3 and cid not in announce_alerted:
+                send_jonny_alert(
+                    f"Jonny qui. L'annuncio Discord della campagna '{c.get('name')}' (inviata {int(ore_passate)}h fa) "
+                    f"non è ancora riuscito. Errore: {e}"
+                )
+                announce_alerted.add(cid)
+    if annunciate_ora == 0:
+        print("Nessuna nuova campagna da annunciare.")
+    save_state(NEWSLETTER_STATE_FILE, already_announced)
+    save_state(DISCORD_ANNOUNCE_ALERT_FILE, announce_alerted)
+
+
+def run_newsletter_pdf():
+    """SOLO la generazione/upload del PDF su Drive. Richiede Playwright/Chromium
+    gia' installati nel runner. Stato in PDF_STATE_FILE, separato dall'annuncio
+    Discord: se l'install di Playwright non riesce lo step a monte fallisce, questa
+    funzione non gira, nessuna campagna viene segnata "PDF fatto" e il giro dopo
+    riprova. Un annuncio Discord riuscito non viene mai ri-tentato per colpa del PDF."""
+    if not BREVO_API_KEY:
+        print("BREVO_API_KEY mancante, salto la generazione PDF.")
+        return
+
+    campaigns, ore_da_invio = _newsletter_context()
     pdf_done = load_state(PDF_STATE_FILE)
     pdf_alerted = load_state(PDF_ALERT_STATE_FILE)
     for c in campaigns:
@@ -865,6 +895,25 @@ def run_newsletter():
 
     save_state(PDF_STATE_FILE, pdf_done)
     save_state(PDF_ALERT_STATE_FILE, pdf_alerted)
+
+
+def run_newsletter_pdf_check():
+    """Scrive pdf_needed=true|false su GITHUB_OUTPUT (e stdout): 'true' se c'e'
+    almeno una campagna sent con nome riconoscibile e senza PDF ancora fatto.
+    Serve al workflow per installare Playwright SOLO quando serve davvero."""
+    needed = "true" if _campagne_senza_pdf() else "false"
+    print(f"pdf_needed={needed}")
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as f:
+            f.write(f"pdf_needed={needed}\n")
+
+
+def run_newsletter():
+    """Compat: annuncio Discord + PDF in un'unica chiamata (non piu' usato dal
+    workflow, che ora li tiene separati)."""
+    run_newsletter_announce()
+    run_newsletter_pdf()
 
 
 def run_alert_event():
@@ -894,6 +943,12 @@ if __name__ == "__main__":
         run_alert_event()
     elif mode == "newsletter":
         run_newsletter()
+    elif mode == "newsletter_announce":
+        run_newsletter_announce()
+    elif mode == "newsletter_pdf":
+        run_newsletter_pdf()
+    elif mode == "newsletter_pdf_check":
+        run_newsletter_pdf_check()
     else:
         run_news()
         run_calendar()

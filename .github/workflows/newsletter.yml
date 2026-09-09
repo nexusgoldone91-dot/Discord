@@ -7,7 +7,10 @@ permissions:
   contents: write
 
 jobs:
-  check:
+  # 1) Annuncio su #newsletter. NON dipende da Playwright/Chrome: un singhiozzo
+  #    del repo Chrome di Google (Hash Sum mismatch) non deve piu' bloccare
+  #    l'annuncio, che con Playwright non c'entra niente.
+  annuncio:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,12 +19,71 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Installa Playwright (serve solo per generare il PDF quando c'e' una campagna nuova)
+      - name: Annuncia su Discord le campagne Brevo inviate e non ancora annunciate
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID_NEWSLETTER: ${{ secrets.DISCORD_CHANNEL_ID_NEWSLETTER }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID_USD: ${{ secrets.DISCORD_CHANNEL_ID_USD }}
+          JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
+          JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
+        run: python check_news.py newsletter_announce
+
+      - name: Salva lo stato annuncio Discord (separato dal PDF)
+        run: |
+          git config user.name "xauusd-alert-bot"
+          git config user.email "actions@github.com"
+          git pull --no-edit || true
+          git add seen_newsletter.json seen_discord_announce_alerted.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato annunci newsletter (Discord)"
+          git push || true
+
+  # 2) PDF su Drive. Gira dopo l'annuncio, solo se c'e' almeno una campagna che
+  #    ha bisogno del PDF. continue-on-error a livello di job: se l'install di
+  #    Playwright non riesce nemmeno dopo i retry, questo job "fallisce" ma il
+  #    workflow nel complesso resta verde e la campagna NON viene segnata come
+  #    "PDF fatto", cosi' il giro dopo ci riprova.
+  pdf:
+    needs: annuncio
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Serve generare qualche PDF?
+        id: check
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID_USD: ${{ secrets.DISCORD_CHANNEL_ID_USD }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+        run: python check_news.py newsletter_pdf_check
+
+      - name: Installa Playwright con retry (il repo Chrome di Google a volte da' "Hash Sum mismatch")
+        if: steps.check.outputs.pdf_needed == 'true'
         run: |
           pip install playwright
-          python -m playwright install --with-deps chromium
+          ok=""
+          for i in 1 2 3; do
+            if python -m playwright install --with-deps chromium; then
+              ok="1"
+              break
+            fi
+            echo "Tentativo $i di installazione Playwright fallito, riprovo tra 30s..."
+            sleep 30
+          done
+          if [ -z "$ok" ]; then
+            echo "Playwright non installato dopo 3 tentativi: il PDF verra' ritentato al prossimo giro."
+            exit 1
+          fi
 
-      - name: Controlla campagne Brevo inviate, annuncia su Discord e genera/carica il PDF
+      - name: Genera e carica su Drive i PDF delle campagne senza PDF
+        if: steps.check.outputs.pdf_needed == 'true'
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID_NEWSLETTER: ${{ secrets.DISCORD_CHANNEL_ID_NEWSLETTER }}
@@ -33,16 +95,14 @@ jobs:
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
           JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
-        run: python check_news.py newsletter
+        run: python check_news.py newsletter_pdf
 
-      - name: Salva lo stato (campagne già annunciate)
+      - name: Salva lo stato PDF (separato dall'annuncio Discord)
+        if: steps.check.outputs.pdf_needed == 'true'
         run: |
           git config user.name "xauusd-alert-bot"
           git config user.email "actions@github.com"
           git pull --no-edit || true
-          git add seen_newsletter.json || true
-          git add seen_pdf_done.json || true
-          git add seen_pdf_alerted.json || true
-          git add seen_discord_announce_alerted.json || true
-          git diff --staged --quiet || git commit -m "aggiorna stato annunci newsletter"
+          git add seen_pdf_done.json seen_pdf_alerted.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato PDF newsletter"
           git push || true
