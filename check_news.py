@@ -204,6 +204,22 @@ def fetch_url(url):
         return resp.read()
 
 
+def urlopen_con_retry(req, timeout=15, tentativi=3, attesa=5):
+    """urlopen con qualche tentativo in piu' prima di arrendersi - aggiunto 13/9/2026
+    dopo un errore 500 momentaneo di Brevo che ha fatto fallire tutto il giro
+    (run GitHub Actions, mail 'Run failed' a William per niente: il giro dopo,
+    5 minuti più tardi, e' sempre andato liscio da solo)."""
+    last_error = None
+    for tentativo in range(tentativi):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except Exception as e:
+            last_error = e
+            if tentativo < tentativi - 1:
+                time.sleep(attesa)
+    raise last_error
+
+
 # ---------- NOTIZIE GENERICHE (#info-dal-mondo) ----------
 
 def fetch_news_feed(url):
@@ -760,7 +776,7 @@ def fetch_sent_campaigns():
         return []
     url = "https://api.brevo.com/v3/emailCampaigns?status=sent&limit=20&sort=desc"
     req = urllib.request.Request(url, headers={"api-key": BREVO_API_KEY, "accept": "application/json"})
-    with urllib.request.urlopen(req) as resp:
+    with urlopen_con_retry(req) as resp:
         data = json.load(resp)
     return data.get("campaigns", [])
 
@@ -833,7 +849,11 @@ def run_newsletter_announce():
         print("DISCORD_CHANNEL_ID_NEWSLETTER mancante, salto l'annuncio newsletter.")
         return
 
-    campaigns, ore_da_invio = _newsletter_context()
+    try:
+        campaigns, ore_da_invio = _newsletter_context()
+    except Exception as e:
+        print(f"Brevo irraggiungibile dopo i tentativi, salto questo giro (si riprova tra 5 min): {e}")
+        return
     already_announced = load_state(NEWSLETTER_STATE_FILE)
     announce_alerted = load_state(DISCORD_ANNOUNCE_ALERT_FILE)
     annunciate_ora = 0
@@ -872,7 +892,11 @@ def run_newsletter_pdf():
         print("BREVO_API_KEY mancante, salto la generazione PDF.")
         return
 
-    campaigns, ore_da_invio = _newsletter_context()
+    try:
+        campaigns, ore_da_invio = _newsletter_context()
+    except Exception as e:
+        print(f"Brevo irraggiungibile dopo i tentativi, salto questo giro (si riprova tra 5 min): {e}")
+        return
     pdf_done = load_state(PDF_STATE_FILE)
     pdf_alerted = load_state(PDF_ALERT_STATE_FILE)
     for c in campaigns:
@@ -901,7 +925,11 @@ def run_newsletter_pdf_check():
     """Scrive pdf_needed=true|false su GITHUB_OUTPUT (e stdout): 'true' se c'e'
     almeno una campagna sent con nome riconoscibile e senza PDF ancora fatto.
     Serve al workflow per installare Playwright SOLO quando serve davvero."""
-    needed = "true" if _campagne_senza_pdf() else "false"
+    try:
+        needed = "true" if _campagne_senza_pdf() else "false"
+    except Exception as e:
+        print(f"Brevo irraggiungibile dopo i tentativi, salto questo controllo (si riprova tra 5 min): {e}")
+        needed = "false"
     print(f"pdf_needed={needed}")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
