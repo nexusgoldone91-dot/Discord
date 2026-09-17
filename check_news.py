@@ -23,7 +23,8 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
 DISCORD_BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
@@ -222,6 +223,34 @@ def urlopen_con_retry(req, timeout=15, tentativi=3, attesa=5):
 
 # ---------- NOTIZIE GENERICHE (#info-dal-mondo) ----------
 
+# Eta' massima di un articolo perche' venga considerato "notizia di oggi" (aggiunto
+# 17/9/2026 dopo un bug reale segnalato da William: un titolo su Bitcoin a 94.000$,
+# prezzo vecchio non di oggi, e' passato come se fosse fresco. Causa trovata: lo
+# script non controllava MAI la data di pubblicazione dell'articolo, solo il GUID
+# "gia' visto" (che tiene in memoria solo gli ultimi 500) - se un feed ripubblica
+# un articolo vecchio con un GUID diverso, o lo stato dimentica un GUID vecchio
+# dopo tanto traffico, l'articolo vecchio passava come notizia nuova. Finestra di
+# 6 ore scelta perche' il giro gira ogni ~29 minuti (vedi news.yml): abbastanza
+# larga da non perdere notizie vere per un feed lento ad aggiornare pubDate, ma
+# stretta abbastanza da escludere qualsiasi articolo di ore/giorni/mesi prima.
+MAX_NEWS_AGE = timedelta(hours=6)
+
+
+def parse_pub_date(raw):
+    """Ritorna un datetime timezone-aware, o None se il feed non fornisce una
+    data valida (in quel caso l'articolo viene scartato per prudenza, vedi
+    check_news: senza data non si puo' verificare che sia davvero fresco)."""
+    if not raw:
+        return None
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def fetch_news_feed(url):
     try:
         data = fetch_url(url)
@@ -236,7 +265,11 @@ def fetch_news_feed(url):
         description = clean_text(item.findtext("description", ""))
         link = item.findtext("link", "")
         guid = item.findtext("guid", link)
-        items.append({"title": title, "description": description, "guid": guid, "link": link})
+        pub_date = parse_pub_date(item.findtext("pubDate", ""))
+        items.append({
+            "title": title, "description": description, "guid": guid,
+            "link": link, "pub_date": pub_date,
+        })
     return items
 
 
@@ -361,12 +394,19 @@ def check_news():
     seen = load_state(NEWS_STATE_FILE)
     seen_titles = load_state(NEWS_TITLE_STATE_FILE)
     new_relevant = []
+    now = datetime.now(timezone.utc)
 
     for feed_url in NEWS_FEEDS:
         for item in fetch_news_feed(feed_url):
             if item["guid"] in seen:
                 continue
             seen.add(item["guid"])
+            # Articolo senza data valida, o piu' vecchio della finestra ammessa:
+            # scartato SEMPRE, anche se il GUID risultava "nuovo" - e' proprio
+            # questo controllo che mancava e ha fatto passare notizie vecchie
+            # come fresche (vedi nota su MAX_NEWS_AGE).
+            if item["pub_date"] is None or (now - item["pub_date"]) > MAX_NEWS_AGE:
+                continue
             norm_title = normalize_title(item["title"])
             if norm_title and norm_title in seen_titles:
                 continue  # doppione: stesso titolo gia' pubblicato (altro feed o guid nuovo)
@@ -980,3 +1020,4 @@ if __name__ == "__main__":
     else:
         run_news()
         run_calendar()
+
