@@ -293,6 +293,10 @@ def check_newsletter_strategist_cron(issues):
         with open(CRON_STATUS_FILE) as f:
             last_created_raw = json.load(f)["last_created"]
         last_created = datetime.fromisoformat(last_created_raw.replace("Z", "+00:00"))
+        if last_created.tzinfo is None:
+            # Difensivo: se qualcuno scrive last_created senza ora/fuso (es. solo "2026-09-20"),
+            # non far crashare tutto il Reparto di controllo (successo il 20-22/9/2026) -- si assume UTC.
+            last_created = last_created.replace(tzinfo=timezone.utc)
     except Exception as e:
         issues.append(f"[Newsletter Strategist cron] Impossibile leggere {CRON_STATUS_FILE}: {e}")
         return
