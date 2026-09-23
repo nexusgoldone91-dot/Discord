@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-09-23T17:15:32Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-09-23T20:15:49Z",
+  "ok": false,
+  "issues": [
+    "[Newsletter signup] Impossibile testare il modulo di iscrizione: The read operation timed out"
+  ]
 }
