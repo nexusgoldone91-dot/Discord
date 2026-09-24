@@ -1,9 +1,9 @@
-name: Benvenuto nuovi membri Discord (ogni ora)
+name: Benvenuto nuovi membri Discord (ogni 5 minuti)
 
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
