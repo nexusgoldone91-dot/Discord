@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-09-30T11:15:29Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-09-30T14:15:29Z",
+  "ok": false,
+  "issues": [
+    "[Discord] Bot non raggiungibile: HTTP Error 429: Too Many Requests"
+  ]
 }
