@@ -22,3 +22,12 @@ jobs:
           JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
           DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
         run: python check_security.py
+      - name: Avviso se il controllo fallisce
+        if: failure()
+        env:
+          JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
+          JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${JONNY_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${JONNY_CHAT_ID}" \
+            --data-urlencode text="Jonny qui. Il controllo di sicurezza giornaliero NON e riuscito a girare. Va guardato."
