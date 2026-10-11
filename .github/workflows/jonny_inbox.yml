@@ -1,0 +1,22 @@
+name: Posta da Jonny (ogni 15 minuti)
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  posta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Legge i messaggi di William a Jonny e li salva in Notion
+        env:
+          JONNY_BOT_TOKEN: ${{ secrets.JONNY_BOT_TOKEN }}
+          JONNY_CHAT_ID: ${{ secrets.JONNY_CHAT_ID }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_INBOX_PAGE_ID: "3f6db6d0-ea1f-817a-b3cd-d67f6d8e7312"
+        run: python jonny_inbox.py
