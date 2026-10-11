@@ -265,7 +265,7 @@ def main():
     problems.extend(check_landing_security_headers())
     problems.extend(check_landing_sensitive_paths())
     problems.extend(check_ssl_certificate_expiry())
-    problems.extend(check_discord_bot_permissions())
+    # Permessi del bot Discord: controllo RIMOSSO l'11/10/2026 su decisione di William (il bot resta Amministratore apposta, niente segnalazioni).
     problems.extend(check_domain_email_auth())
 
     if problems:
