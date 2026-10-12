@@ -3,7 +3,7 @@
 Gira ogni 5 minuti su GitHub Actions; risponde con una conferma e porta con sé il messaggio a cui William risponde. Nessuno stato nel repo: i messaggi si confermano su Telegram solo dopo averli scritti in Notion.
 Env: JONNY_BOT_TOKEN, JONNY_CHAT_ID, NOTION_API_KEY, NOTION_INBOX_PAGE_ID. Non stampa mai chiavi.
 """
-import os, sys, json, datetime, urllib.request, urllib.parse
+import os, sys, json, datetime, urllib.request, urllib.parse, urllib.error
 TOK = os.environ["JONNY_BOT_TOKEN"]; CHAT = str(os.environ["JONNY_CHAT_ID"])
 NOTION = os.environ["NOTION_API_KEY"]; PAGE = os.environ["NOTION_INBOX_PAGE_ID"]
 
@@ -19,7 +19,44 @@ def notion_append(lines):
         headers={"Authorization": f"Bearer {NOTION}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=30).read()
 
+def alert(msg):
+    """Avvisa William su Jonny (al massimo una volta all'ora: solo nei primi 5 minuti di ogni ora)."""
+    if datetime.datetime.utcnow().minute >= 5:
+        return
+    try:
+        tg("sendMessage", chat_id=CHAT, text=msg)
+    except Exception:
+        pass
+
+def notion_cleanup(days=30):
+    """Cancella (archivia) dalla pagina i messaggi piu' vecchi di `days` giorni. Non tocca la riga introduttiva."""
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+    cursor, n = None, 0
+    while True:
+        url = f"https://api.notion.com/v1/blocks/{PAGE}/children?page_size=100" + (f"&start_cursor={cursor}" if cursor else "")
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {NOTION}", "Notion-Version": "2022-06-28"})
+        d = json.load(urllib.request.urlopen(req, timeout=30))
+        for b in d.get("results", []):
+            txt = "".join(t.get("plain_text", "") for t in ((b.get(b.get("type"), {}) or {}).get("rich_text") or []))
+            if txt.startswith("Qui arrivano da soli"):
+                continue
+            created = datetime.datetime.strptime(b["created_time"][:19], "%Y-%m-%dT%H:%M:%S")
+            if created < cutoff:
+                dreq = urllib.request.Request(f"https://api.notion.com/v1/blocks/{b['id']}", method="DELETE",
+                    headers={"Authorization": f"Bearer {NOTION}", "Notion-Version": "2022-06-28"})
+                urllib.request.urlopen(dreq, timeout=30).read(); n += 1
+        if not d.get("has_more"):
+            break
+        cursor = d.get("next_cursor")
+    return n
+
 def main():
+    now = datetime.datetime.utcnow()
+    if now.hour == 3 and now.minute < 5:   # una volta al giorno
+        try:
+            print(f"pulizia: {notion_cleanup(30)} blocchi vecchi cancellati")
+        except Exception as e:
+            alert(f"Jonny: la pulizia dei messaggi vecchi su Notion non è riuscita ({type(e).__name__}).")
     r = tg("getUpdates", timeout=0, limit=100)
     ups = r.get("result", [])
     if not ups:
@@ -40,7 +77,13 @@ def main():
             txt += "\n   [in risposta a questo messaggio di Jonny: " + rep_txt[:700].replace("\n", " ") + "]"
         lines.append(f"[{when}] {txt}")
     if lines:
-        notion_append(lines)
+        try:
+            notion_append(lines)
+        except Exception as e:
+            code = getattr(e, "code", "")
+            alert(f"Jonny: non riesco a salvare i tuoi messaggi su Notion (errore {type(e).__name__} {code}). Restano in attesa su Telegram fino a 24 ore: va sistemato il collegamento a Notion.")
+            print("ERRORE Notion", type(e).__name__, code)
+            sys.exit(1)
     tg("getUpdates", offset=last + 1, limit=1)   # conferma solo dopo aver scritto in Notion
     if lines:
         try:
