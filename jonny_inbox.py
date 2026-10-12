@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Posta da Jonny: legge i messaggi che William scrive al bot Jonny e li accoda in una pagina Notion privata.
-Gira ogni 15 minuti su GitHub Actions. Nessuno stato nel repo: i messaggi si confermano su Telegram solo dopo averli scritti in Notion.
+Gira ogni 5 minuti su GitHub Actions; risponde con una conferma e porta con sé il messaggio a cui William risponde. Nessuno stato nel repo: i messaggi si confermano su Telegram solo dopo averli scritti in Notion.
 Env: JONNY_BOT_TOKEN, JONNY_CHAT_ID, NOTION_API_KEY, NOTION_INBOX_PAGE_ID. Non stampa mai chiavi.
 """
 import os, sys, json, datetime, urllib.request, urllib.parse
@@ -34,10 +34,19 @@ def main():
         if not txt:
             txt = "[allegato senza testo: " + ", ".join(k for k in ("photo", "voice", "document", "video") if m.get(k)) + "]"
         when = datetime.datetime.utcfromtimestamp(m.get("date", 0)).strftime("%d/%m %H:%M UTC")
+        rep = m.get("reply_to_message") or {}
+        rep_txt = rep.get("text") or rep.get("caption") or ""
+        if rep_txt:
+            txt += "\n   [in risposta a questo messaggio di Jonny: " + rep_txt[:700].replace("\n", " ") + "]"
         lines.append(f"[{when}] {txt}")
     if lines:
         notion_append(lines)
     tg("getUpdates", offset=last + 1, limit=1)   # conferma solo dopo aver scritto in Notion
+    if lines:
+        try:
+            tg("sendMessage", chat_id=CHAT, text=f"Ricevuto e salvato ({len(lines)}). Lo leggo appena la sessione è aperta.")
+        except Exception:
+            pass
     print(f"{len(lines)} messaggi salvati")
 
 if __name__ == "__main__":
