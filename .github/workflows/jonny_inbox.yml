@@ -1,9 +1,9 @@
-name: Posta da Jonny (ogni 15 minuti)
+name: Posta da Jonny (ogni 5 minuti)
 
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
 
 jobs:
   posta:
