@@ -1,7 +1,9 @@
 {
-  "checked_at": "2026-10-13T11:15:28Z",
+  "checked_at": "2026-10-14T11:15:33Z",
   "ok": false,
   "issues": [
-    "[Newsletter Strategist cron] Sono passati 15.0 giorni dall'ultima creazione, va ricreato"
+    "[Landing] Anchor #discord-card referenziato ma id non trovato",
+    "[Newsletter Strategist cron] Sono passati 16.0 giorni dall'ultima creazione, va ricreato",
+    "[Brevo] Impossibile leggere le campagne: HTTP Error 429: Too Many Requests"
   ]
 }
