@@ -40,7 +40,7 @@ def save_state(path, values):
 # ---------- 1. LANDING PAGE ----------
 
 SITE_URL = "https://nexusgoldone.com/"
-ANCHOR_IDS = ["coaching-card", "discord-card", "newsletter-card", "testimonianze"]
+ANCHOR_IDS = ["coaching-card", "newsletter-card", "testimonianze", "chi-sono", "il-percorso"]  # aggiornato 14/10/2026: la landing nuova non ha più la card Discord
 EXTERNAL_LINKS = [
     "https://discord.gg/s7FqjtxYmc",
     "https://wa.me/393780116402",
