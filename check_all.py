@@ -306,11 +306,11 @@ def check_newsletter_strategist_cron(issues):
     marker = last_created_raw  # un avviso per ogni "ciclo" di creazione, non uno al giorno
 
     if giorni_passati > 6:
-        issues.append(f"[Newsletter Strategist cron] Sono passati {giorni_passati:.1f} giorni dall'ultima creazione, va ricreato")
+        issues.append(f"[Cron di sessione Claude] Sono passati {giorni_passati:.1f} giorni dall'ultima creazione, vanno ricreati (si aggiorna last_created quando William ricrea i cron)")
         if marker not in already_alerted:
             send_jonny_alert(
-                "Jonny qui. Il job automatico di Newsletter Strategist (lun/mer/ven 11:00) "
-                "va ricreato: apri una sessione Claude Code e dimmi \"leggi il master claude\"."
+                "Jonny qui. I cron di sessione di Claude Code (ricerca, archivio social, posta, aggiornamento serale) "
+                "scadono dopo 7 giorni e vanno ricreati: apri una sessione Claude Code e dimmi \"leggi il master claude\"."
             )
             already_alerted.add(marker)
             save_state(NEWSLETTER_STRATEGIST_ALERT_FILE, already_alerted)
