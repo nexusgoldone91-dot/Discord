@@ -6,6 +6,8 @@ periodico: lista i membri attuali, confronta con seen_members.json,
 e da' il benvenuto a chi e' nuovo. Nessuna connessione persistente richiesta.
 """
 
+import hashlib
+import hmac
 import json
 import os
 import random
@@ -39,11 +41,27 @@ def get_all_members():
     return members
 
 
+def anon(user_id):
+    """Impronta anonima dell'ID (HMAC con una chiave segreta): il repo e' pubblico e
+    non deve contenere gli ID reali dei membri (decisione di William, 11/11/2026)."""
+    key = (DISCORD_GUILD_ID + ":nexus-welcome").encode()
+    return hmac.new(key, str(user_id).encode(), hashlib.sha256).hexdigest()
+
+
 def load_seen():
-    if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE) as f:
-            return set(json.load(f))
-    return set()
+    """Restituisce (insieme di impronte, True se il file conteneva ancora ID in chiaro)."""
+    if not os.path.exists(SEEN_FILE):
+        return set(), False
+    with open(SEEN_FILE) as f:
+        raw = json.load(f)
+    migrato = False
+    seen = set()
+    for x in raw:
+        if str(x).isdigit():      # vecchio formato: ID in chiaro, lo converto
+            seen.add(anon(x)); migrato = True
+        else:
+            seen.add(x)
+    return seen, migrato
 
 
 def save_seen(seen_ids):
@@ -69,17 +87,17 @@ def send_welcome(user_id):
 
 def main():
     members = get_all_members()
-    current_ids = {m["user"]["id"] for m in members if not m["user"].get("bot")}
-    seen_ids = load_seen()
+    current = {anon(m["user"]["id"]): m["user"]["id"] for m in members if not m["user"].get("bot")}
+    seen_ids, migrato = load_seen()
 
-    new_ids = current_ids - seen_ids
-    for user_id in new_ids:
-        send_welcome(user_id)
-        print(f"Benvenuto inviato a {user_id}")
+    new_hashes = set(current) - seen_ids
+    for h in new_hashes:
+        send_welcome(current[h])
+        print("Benvenuto inviato a un nuovo membro")   # mai stampare l'ID: i log sono pubblici
 
-    if new_ids:
-        save_seen(current_ids)
-        print(f"{len(new_ids)} nuovo/i membro/i accolto/i, stato aggiornato.")
+    if new_hashes or migrato:
+        save_seen(set(current))
+        print(f"{len(new_hashes)} nuovo/i membro/i accolto/i, stato aggiornato (migrato: {migrato}).")
     else:
         print("Nessun nuovo membro.")
 
