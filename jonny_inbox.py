@@ -8,8 +8,15 @@ TOK = os.environ["JONNY_BOT_TOKEN"]; CHAT = str(os.environ["JONNY_CHAT_ID"])
 NOTION = os.environ["NOTION_API_KEY"]; PAGE = os.environ["NOTION_INBOX_PAGE_ID"]
 
 def tg(method, **params):
+    import time as _time
     url = f"https://api.telegram.org/bot{TOK}/{method}?" + urllib.parse.urlencode(params)
-    return json.load(urllib.request.urlopen(url, timeout=30))
+    for tentativo in range(4):
+        try:
+            return json.load(urllib.request.urlopen(url, timeout=30))
+        except Exception:
+            if tentativo == 3:
+                raise
+            _time.sleep(4 * (tentativo + 1))
 
 def notion_append(lines):
     children = [{"object": "block", "type": "bulleted_list_item",
