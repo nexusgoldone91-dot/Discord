@@ -1,4 +1,4 @@
-name: Posta da Jonny (ogni 5 minuti)
+name: Posta da Jonny e benvenuto nuovi membri (ogni 5 minuti)
 
 on:
   workflow_dispatch: {}
@@ -9,8 +9,8 @@ jobs:
   posta:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Legge i messaggi di William a Jonny e li salva in Notion
@@ -20,3 +20,27 @@ jobs:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_INBOX_PAGE_ID: "3f6db6d0-ea1f-817a-b3cd-d67f6d8e7312"
         run: python jonny_inbox.py
+
+  benvenuto:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Controlla nuovi membri Discord e da' il benvenuto
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_CHANNEL_ID_BENVENUTO: ${{ secrets.DISCORD_CHANNEL_ID_BENVENUTO }}
+        run: python check_new_members.py
+      - name: Salva lo stato (membri gia' accolti)
+        run: |
+          git config user.name "welcome-bot"
+          git config user.email "actions@github.com"
+          git pull --no-edit || true
+          git add seen_members.json || true
+          git diff --staged --quiet || git commit -m "aggiorna stato membri accolti"
+          git push || true
