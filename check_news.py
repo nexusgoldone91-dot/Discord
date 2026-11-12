@@ -390,6 +390,50 @@ def normalize_title(title):
     return t
 
 
+
+# ---------- FILTRO "TITOLO PULITO" (William, 12/11/2026) ----------
+# I titoli arrivano in inglese e vengono tradotti da Google, titolo per titolo, senza contesto:
+# i modi di dire, le virgolette e i titoli "giornalistici" diventano frasi senza senso in italiano.
+# Si pubblicano solo titoli semplici (fatto, numeri, soggetto e verbo): gli altri vengono scartati.
+_TITOLO_NON_PULITO_INIZI = (
+    "why ", "how ", "what ", "who ", "when ", "where ", "here's", "here is", "here are", "this ", "these ", "those ",
+    "things ", "reasons ", "ways ", "should ", "is it ", "are you ", "can ", "could ", "will ", "would ", "do you ",
+    "forget ", "stop ", "don't ", "dont ", "never ", "every ", "the one ", "the best ", "the worst ", "the real ",
+    "the surprising ", "the secret ", "the truth ", "my ", "i ", "you ", "your ", "we ", "our ",
+)
+_TITOLO_NON_PULITO_PAROLE = (
+    "wondering", "wonders", "jitters", "afterglow", "could be", "might be", "may be", "wall street's", "golden child", "game changer", "game-changer",
+    "perfect storm", "ticking", "bombshell", "stunning", "shocking", "huge", "massive", "big deal", "what to know",
+    "what you need", "everything you", "you need to", "should you", "worth it", "buy now", "sell now", "here's why",
+    "here's how", "here's what", "says it's", "just got", "all you", "you can't", "you might", "you may",
+    " why ", "coin flip", "poised to", "rattles", "silver lining", "sold to death", "coming for", "killed the",
+    "is now ", "looming", "rout", "chaos", "frenzy", "scramble", "wake-up call", "tailspin", "on edge", "in the crosshairs",
+    "no longer", "what's moving", "what’s moving", "key jackson", "at cross purposes", "is back", "takes a", "dealt a",
+)
+
+
+def is_clean_headline(title):
+    t = title.strip()
+    low = t.lower()
+    if "?" in t or "\"" in t or "“" in t or "”" in t or "‘" in t or "’s " in t and "'" in t:
+        return False
+    if any(q in t for q in ("'", "‘", "’")) and not re.search(r"\b[a-z]+['’]s\b", low):
+        return False
+    if low.startswith(_TITOLO_NON_PULITO_INIZI):
+        return False
+    if any(p in low for p in _TITOLO_NON_PULITO_PAROLE):
+        return False
+    if re.match(r"^\d+\s", t):          # liste: "6 dividend stocks..."
+        return False
+    if len(t) > 115 or len(t) < 20:
+        return False
+    if t.count(",") > 2 or ":" in t[:25] or ";" in t:
+        return False
+    if re.search(r"[.!]\s+[A-Za-z]", t):   # due frasi nello stesso titolo: la traduzione si confonde
+        return False
+    return True
+
+
 def check_news():
     seen = load_state(NEWS_STATE_FILE)
     seen_titles = load_state(NEWS_TITLE_STATE_FILE)
@@ -410,7 +454,7 @@ def check_news():
             norm_title = normalize_title(item["title"])
             if norm_title and norm_title in seen_titles:
                 continue  # doppione: stesso titolo gia' pubblicato (altro feed o guid nuovo)
-            if matches_keywords(item["title"]):
+            if matches_keywords(item["title"]) and is_clean_headline(item["title"]):
                 if norm_title:
                     seen_titles.add(norm_title)
                 new_relevant.append(item)
