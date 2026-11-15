@@ -309,7 +309,7 @@ def check_newsletter_strategist_cron(issues):
         issues.append(f"[Cron di sessione Claude] Sono passati {giorni_passati:.1f} giorni dall'ultima creazione, vanno ricreati (si aggiorna last_created quando William ricrea i cron)")
         if marker not in already_alerted:
             send_jonny_alert(
-                "Jonny qui. I cron di sessione di Claude Code (ricerca, archivio social, posta, aggiornamento serale) "
+                "Jonny qui. I cron di sessione di Claude Code (ricerca Social, ricerca Newsletter, controllo Brevo, revisione Instagram, posta, notizie) "
                 "scadono dopo 7 giorni e vanno ricreati: apri una sessione Claude Code e dimmi \"leggi il master claude\"."
             )
             already_alerted.add(marker)
