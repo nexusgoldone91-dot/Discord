@@ -70,7 +70,7 @@ def save_seen(seen_ids):
 
 
 def send_welcome(user_id):
-    message = f"Ciao <@{user_id}>, benvenuto sul server ufficiale di NexusGoldOne {random.choice(EMOJI_CHOICES)}"
+    message = f"Ciao <@{user_id}>, benvenuto nel server di Tranquilli con Willy {random.choice(EMOJI_CHOICES)}"
     payload = json.dumps({"content": message}).encode()
     req = urllib.request.Request(
         f"https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID_BENVENUTO}/messages",
