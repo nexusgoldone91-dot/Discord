@@ -19,7 +19,7 @@ DISCORD_CHANNEL_ID_BENVENUTO = os.environ["DISCORD_CHANNEL_ID_BENVENUTO"]
 
 USER_AGENT = "NexusGoldOne-WelcomeBot/1.0 (https://nexusgoldone.com)"
 SEEN_FILE = "seen_members.json"
-EMOJI_CHOICES = ["👋", "🚀", "📈", "💛", "⭐"]
+EMOJI_CHOICES = ["👋", "💛", "⭐", "🏴‍☠️", "⚓"]
 
 
 def get_all_members():
