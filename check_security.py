@@ -210,8 +210,8 @@ def check_domain_email_auth():
         spf = [r for r in spf_records if "v=spf1" in r]
         if not spf:
             problems.append("Record SPF non trovato su tranquilliconwilly.com (dovrebbe esserci).")
-        elif "spf.brevo.com" not in spf[0]:
-            problems.append("Record SPF presente ma non include più Brevo (spf.brevo.com) — controllare se qualcuno l'ha modificato.")
+        # 21/11/2026: niente piu' obbligo di spf.brevo.com. Il dominio usa l'inoltro di Namecheap (SPF bloccato);
+        # Brevo passa i controlli con DKIM + DMARC.
     except Exception as e:
         problems.append(f"Impossibile verificare l'SPF ({e}).")
 
