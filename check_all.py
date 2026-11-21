@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Reparto di controllo unico NexusGoldOne (deciso 27/7/2026: un solo posto che
+Reparto di controllo unico TcW (deciso 27/7/2026: un solo posto che
 controlla tutto, invece di più agenti/monitor separati). Gira su GitHub Actions
 (workflow control.yml), nessuna dipendenza da Mac/sessione Claude Code aperta.
 
@@ -39,7 +39,7 @@ def save_state(path, values):
 
 # ---------- 1. LANDING PAGE ----------
 
-SITE_URL = "https://nexusgoldone.com/"
+SITE_URL = "https://tranquilliconwilly.com/"
 ANCHOR_IDS = ["coaching-card", "newsletter-card", "testimonianze", "chi-sono", "il-percorso"]  # aggiornato 14/10/2026: la landing nuova non ha più la card Discord
 EXTERNAL_LINKS = [
     "https://discord.gg/s7FqjtxYmc",
@@ -51,7 +51,7 @@ EXTERNAL_LINKS = [
 def check_landing(issues):
     start = time.time()
     try:
-        req = urllib.request.Request(SITE_URL, headers={"User-Agent": "Mozilla/5.0 (NexusGoldOneMonitor/1.0)"})
+        req = urllib.request.Request(SITE_URL, headers={"User-Agent": "Mozilla/5.0 (TcWMonitor/1.0)"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             elapsed = time.time() - start
             status = resp.status
@@ -79,7 +79,7 @@ def check_landing(issues):
 
     for url in EXTERNAL_LINKS:
         try:
-            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0 (NexusGoldOneMonitor/1.0)"})
+            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0 (TcWMonitor/1.0)"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 if resp.status >= 400:
                     issues.append(f"[Landing] Link esterno {url} risponde {resp.status}")
@@ -125,7 +125,7 @@ def check_discord(issues):
     if not token:
         issues.append("[Discord] DISCORD_BOT_TOKEN mancante, salto il controllo")
         return
-    headers = {"Authorization": f"Bot {token}", "User-Agent": "DiscordBot (https://nexusgoldone.com, 1.0)"}
+    headers = {"Authorization": f"Bot {token}", "User-Agent": "DiscordBot (https://tranquilliconwilly.com, 1.0)"}
 
     try:
         req = urllib.request.Request("https://discord.com/api/v10/users/@me", headers=headers)
@@ -227,11 +227,11 @@ def check_newsletter_signup(issues):
     """Test end-to-end vero: manda un'email di test alla function live di iscrizione
     e legge il campo diagnostico brevoOk per sapere se e' arrivata davvero su Brevo,
     senza doversi fidare della risposta sempre-200 mostrata al visitatore reale."""
-    test_email = f"control-check-{int(time.time())}@nexusgoldone-monitor.test"
+    test_email = f"control-check-{int(time.time())}@tcw-monitor.test"
     payload = json.dumps({"email": test_email}).encode("utf-8")
     try:
         req = urllib.request.Request(
-            "https://nexusgoldone.com/.netlify/functions/subscribe",
+            "https://tranquilliconwilly.com/.netlify/functions/subscribe",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
