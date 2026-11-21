@@ -36,8 +36,8 @@ DANGEROUS_PERMISSION_BITS = {
     "Silenziare/isolare membri": 0x10000000000,
 }
 
-USER_AGENT = "NexusGoldOne-SecurityAgent/1.0 (https://nexusgoldone.com)"
-LANDING_DOMAIN = "nexusgoldone.com"
+USER_AGENT = "TcW-SecurityAgent/1.0 (https://tranquilliconwilly.com)"
+LANDING_DOMAIN = "tranquilliconwilly.com"
 EXPECTED_SECURITY_HEADERS = [
     "strict-transport-security",
     "x-content-type-options",
@@ -203,13 +203,13 @@ def dns_over_https(name, record_type):
 
 
 def check_domain_email_auth():
-    """Controlla SPF, DKIM e DMARC su nexusgoldone.com, per accorgersi se qualcosa si rompe nel tempo."""
+    """Controlla SPF, DKIM e DMARC su tranquilliconwilly.com, per accorgersi se qualcosa si rompe nel tempo."""
     problems = []
     try:
         spf_records = dns_over_https(LANDING_DOMAIN, "TXT")
         spf = [r for r in spf_records if "v=spf1" in r]
         if not spf:
-            problems.append("Record SPF non trovato su nexusgoldone.com (dovrebbe esserci).")
+            problems.append("Record SPF non trovato su tranquilliconwilly.com (dovrebbe esserci).")
         elif "spf.brevo.com" not in spf[0]:
             problems.append("Record SPF presente ma non include più Brevo (spf.brevo.com) — controllare se qualcuno l'ha modificato.")
     except Exception as e:
@@ -218,7 +218,7 @@ def check_domain_email_auth():
     try:
         dmarc_records = dns_over_https(f"_dmarc.{LANDING_DOMAIN}", "TXT")
         if not any("v=DMARC1" in r for r in dmarc_records):
-            problems.append("Record DMARC non trovato o non valido su _dmarc.nexusgoldone.com.")
+            problems.append("Record DMARC non trovato o non valido su _dmarc.tranquilliconwilly.com.")
     except Exception as e:
         problems.append(f"Impossibile verificare il DMARC ({e}).")
 
