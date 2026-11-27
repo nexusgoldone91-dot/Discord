@@ -1,5 +1,7 @@
 {
-  "checked_at": "2026-11-26T12:15:33Z",
-  "ok": true,
-  "issues": []
+  "checked_at": "2026-11-27T12:15:37Z",
+  "ok": false,
+  "issues": [
+    "[Cron di sessione Claude] Sono passati 6.7 giorni dall'ultima creazione, vanno ricreati (si aggiorna last_created quando William ricrea i cron)"
+  ]
 }
